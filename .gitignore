@@ -1,0 +1,9 @@
+# Environment variables - NEVER commit these
+backend/.env
+backend/db/team3332.db
+
+# Dependencies
+backend/node_modules/
+
+# OS files
+.DS_Store
