@@ -1,8 +1,11 @@
 // routes/stripe.js — Stripe checkout + webhook
 
 const router  = require('express').Router();
-const stripe  = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { getDb } = require('../db');
+
+function getStripe() {
+  return require('stripe')(process.env.STRIPE_SECRET_KEY);
+}
 const { requireAuth } = require('../middleware/auth');
 
 const PRICES = {
@@ -20,7 +23,7 @@ router.post('/checkout', requireAuth, async (req, res) => {
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   try {
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripe().checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'payment',
       customer_email: user.email,
@@ -75,7 +78,7 @@ router.post('/webhook', require('express').raw({ type: 'application/json' }), as
     // In production, verify with STRIPE_WEBHOOK_SECRET
     // For dev, just parse the body directly
     event = process.env.STRIPE_WEBHOOK_SECRET
-      ? stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET)
+      ? getStripe().webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET)
       : JSON.parse(req.body);
   } catch(e) {
     return res.status(400).json({ error: `Webhook error: ${e.message}` });
