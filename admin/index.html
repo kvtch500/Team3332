@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TEAM 3332 — Admin</title>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --black: #080B12;
+      --dark: #0F1420;
+      --card: #131B2E;
+      --card2: #192038;
+      --border: #1E2D45;
+      --border2: #253650;
+      --blue: #0EA5E9;
+      --blue-light: #38BDF8;
+      --blue-glow: rgba(14,165,233,0.15);
+      --green: #10B981;
+      --gold: #F59E0B;
+      --red: #EF4444;
+      --white: #F0F4FF;
+      --gray: #8A9BB5;
+      --light: #C4CFDF;
+    }
+
+    body { font-family: 'Barlow', sans-serif; background: var(--black); color: var(--white); line-height: 1.5; min-height: 100vh; }
+
+    /* ── LOGIN ── */
+    .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .login-card { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 48px 40px; width: 100%; max-width: 400px; }
+    .login-logo { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.8rem; text-align: center; margin-bottom: 4px; }
+    .login-logo span { color: var(--blue); }
+    .login-sub { text-align: center; color: var(--gray); font-size: 0.82rem; margin-bottom: 32px; }
+    .form-group { margin-bottom: 16px; }
+    label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--gray); margin-bottom: 6px; letter-spacing: 0.05em; text-transform: uppercase; }
+    input { width: 100%; background: var(--dark); border: 1px solid var(--border); border-radius: 8px; padding: 11px 14px; color: var(--white); font-family: 'Barlow', sans-serif; font-size: 0.92rem; outline: none; }
+    input:focus { border-color: var(--blue); }
+    input::placeholder { color: var(--gray); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 11px 20px; border-radius: 8px; font-family: 'Barlow', sans-serif; font-size: 0.88rem; font-weight: 700; cursor: pointer; border: none; transition: all 0.15s; }
+    .btn-full { width: 100%; }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-primary:hover { background: var(--blue-light); }
+    .btn-sm { padding: 6px 12px; font-size: 0.78rem; }
+    .btn-ghost { background: transparent; color: var(--gray); border: 1px solid var(--border); }
+    .btn-ghost:hover { color: var(--white); border-color: var(--border2); }
+    .btn-gold { background: var(--gold); color: #080B12; font-weight: 800; }
+    .btn-gold:hover { background: #FBBF24; }
+    .btn-red { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+    .btn-red:hover { background: rgba(239,68,68,0.25); }
+    .btn-green { background: rgba(16,185,129,0.15); color: var(--green); border: 1px solid rgba(16,185,129,0.3); }
+    .btn-green:hover { background: rgba(16,185,129,0.25); }
+    .error-msg { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; padding: 10px 14px; font-size: 0.82rem; color: var(--red); margin-bottom: 16px; }
+
+    /* ── SHELL ── */
+    .shell { display: flex; height: 100vh; overflow: hidden; }
+
+    /* ── SIDEBAR ── */
+    .sidebar { width: 220px; flex-shrink: 0; background: var(--dark); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 24px 0; }
+    .sidebar-logo { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.3rem; padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+    .sidebar-logo span { color: var(--blue); }
+    .sidebar-admin { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); padding: 0 20px 16px; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: var(--gray); font-size: 0.85rem; font-weight: 500; cursor: pointer; border-left: 3px solid transparent; transition: all 0.15s; }
+    .nav-item:hover { color: var(--white); background: rgba(255,255,255,0.04); }
+    .nav-item.active { color: var(--white); background: rgba(14,165,233,0.1); border-left-color: var(--blue); }
+    .nav-icon { font-size: 1rem; width: 20px; text-align: center; }
+    .sidebar-bottom { margin-top: auto; padding: 16px 20px; border-top: 1px solid var(--border); }
+    .logout-btn { width: 100%; background: transparent; border: 1px solid var(--border); border-radius: 8px; padding: 9px; color: var(--gray); font-family: 'Barlow', sans-serif; font-size: 0.82rem; cursor: pointer; }
+    .logout-btn:hover { color: var(--white); border-color: var(--border2); }
+
+    /* ── MAIN ── */
+    .main { flex: 1; overflow-y: auto; background: var(--black); }
+    .page-header { padding: 28px 32px 0; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--black); z-index: 10; }
+    .page-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 1.7rem; text-transform: uppercase; padding-bottom: 20px; }
+    .page-body { padding: 28px 32px; }
+
+    /* ── STAT CARDS ── */
+    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+    .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px; }
+    .stat-label { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gray); margin-bottom: 8px; }
+    .stat-value { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 2.2rem; line-height: 1; }
+    .stat-value.blue { color: var(--blue); }
+    .stat-value.green { color: var(--green); }
+    .stat-value.gold { color: var(--gold); }
+    .stat-sub { font-size: 0.75rem; color: var(--gray); margin-top: 4px; }
+
+    /* ── TABLE ── */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 24px; }
+    .card-header { padding: 18px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .card-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; }
+    .filter-select { background: var(--dark); border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; color: var(--white); font-family: 'Barlow', sans-serif; font-size: 0.82rem; outline: none; cursor: pointer; }
+    .filter-select:focus { border-color: var(--blue); }
+    .search-input { background: var(--dark); border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; color: var(--white); font-family: 'Barlow', sans-serif; font-size: 0.82rem; outline: none; width: 200px; }
+    .search-input:focus { border-color: var(--blue); }
+    .search-input::placeholder { color: var(--gray); }
+
+    table { width: 100%; border-collapse: collapse; }
+    th { padding: 12px 16px; text-align: left; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--gray); border-bottom: 1px solid var(--border); background: var(--dark); }
+    td { padding: 14px 16px; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+
+    .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 100px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+    .badge-blue { background: rgba(14,165,233,0.15); color: var(--blue); border: 1px solid rgba(14,165,233,0.25); }
+    .badge-gold { background: rgba(245,158,11,0.15); color: var(--gold); border: 1px solid rgba(245,158,11,0.25); }
+    .badge-green { background: rgba(16,185,129,0.15); color: var(--green); border: 1px solid rgba(16,185,129,0.25); }
+    .badge-gray { background: rgba(138,155,181,0.15); color: var(--gray); border: 1px solid rgba(138,155,181,0.25); }
+
+    .actions { display: flex; gap: 6px; }
+
+    /* ── ACTIVITY FEED ── */
+    .feed-item { display: flex; align-items: center; gap: 14px; padding: 14px 24px; border-bottom: 1px solid var(--border); }
+    .feed-item:last-child { border-bottom: none; }
+    .feed-icon { width: 36px; height: 36px; border-radius: 10px; background: var(--dark); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+    .feed-name { font-size: 0.85rem; font-weight: 600; }
+    .feed-meta { font-size: 0.78rem; color: var(--gray); margin-top: 2px; }
+    .feed-miles { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 1.1rem; color: var(--blue); margin-left: auto; flex-shrink: 0; }
+
+    /* ── TOAST ── */
+    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--card2); border: 1px solid var(--border2); border-radius: 10px; padding: 14px 20px; font-size: 0.88rem; font-weight: 600; z-index: 1000; display: flex; align-items: center; gap: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); animation: slideIn 0.3s ease; }
+    @keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    .spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-wrap { padding: 48px; text-align: center; }
+
+    .empty { padding: 48px; text-align: center; color: var(--gray); font-size: 0.88rem; }
+
+    .pagination { display: flex; align-items: center; gap: 8px; padding: 16px 24px; border-top: 1px solid var(--border); }
+    .page-info { font-size: 0.82rem; color: var(--gray); margin-right: auto; }
+  </style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+let ADMIN_KEY = '';
+const API = 'http://localhost:3001/api/admin';
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(API + path, {
+    ...options,
+    headers: { 'x-admin-key': ADMIN_KEY, 'Content-Type': 'application/json', ...(options.headers || {}) }
+  });
+  if (!res.ok) throw new Error((await res.json()).error || 'Request failed');
+  return res.json();
+}
+
+// ── STATE ──
+let authed = false;
+let page   = 'overview';
+let members = [], memberTotal = 0, memberOffset = 0;
+let activities = [];
+let stats = {};
+let search = '', filterTier = '', filterPace = '';
+let toast = null, toastTimer = null;
+
+function showToast(msg, color = 'var(--green)') {
+  if (toastTimer) clearTimeout(toastTimer);
+  toast = { msg, color };
+  render();
+  toastTimer = setTimeout(() => { toast = null; render(); }, 3000);
+}
+
+// ── RENDER ──
+function render() {
+  document.getElementById('app').innerHTML = authed ? renderShell() : renderLogin();
+  bindEvents();
+}
+
+function renderLogin() {
+  return `
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="login-logo">TEAM <span>3332</span></div>
+        <div class="login-sub">Admin Panel — Authorized Access Only</div>
+        <div id="login-error"></div>
+        <div class="form-group"><label>Admin Key</label><input type="password" id="admin-key-input" placeholder="Enter admin key" /></div>
+        <button class="btn btn-primary btn-full" id="login-btn">Access Panel →</button>
+      </div>
+    </div>
+    ${renderToast()}
+  `;
+}
+
+function renderToast() {
+  if (!toast) return '';
+  return `<div class="toast" style="border-color:${toast.color}">${toast.msg}</div>`;
+}
+
+function renderShell() {
+  const nav = [
+    { id: 'overview',   icon: '📊', label: 'Overview' },
+    { id: 'members',    icon: '👥', label: 'Members' },
+    { id: 'activity',   icon: '🏃', label: 'Activity Feed' },
+  ];
+
+  return `
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="sidebar-logo">TEAM <span>3332</span></div>
+        <div class="sidebar-admin">⚙ Admin Panel</div>
+        ${nav.map(n => `
+          <div class="nav-item ${page===n.id?'active':''}" data-page="${n.id}">
+            <span class="nav-icon">${n.icon}</span>
+            ${n.label}
+          </div>
+        `).join('')}
+        <div class="sidebar-bottom">
+          <button class="logout-btn" id="logout-btn">Sign Out</button>
+        </div>
+      </aside>
+      <main class="main">
+        ${page === 'overview'  ? renderOverview()  : ''}
+        ${page === 'members'   ? renderMembers()   : ''}
+        ${page === 'activity'  ? renderActivity()  : ''}
+      </main>
+    </div>
+    ${renderToast()}
+  `;
+}
+
+function renderOverview() {
+  return `
+    <div class="page-header"><div class="page-title">📊 Platform Overview</div></div>
+    <div class="page-body">
+      ${Object.keys(stats).length === 0 ? '<div class="loading-wrap"><div class="spinner"></div></div>' : `
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Members</div>
+            <div class="stat-value blue">${stats.total_members}</div>
+            <div class="stat-sub">+${stats.new_this_week} this week</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Elite Members</div>
+            <div class="stat-value gold">${stats.elite_members}</div>
+            <div class="stat-sub">${stats.standard_members} Standard</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Total Miles Logged</div>
+            <div class="stat-value green">${stats.total_miles}</div>
+            <div class="stat-sub">across ${stats.total_runs} runs</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Active Challenges</div>
+            <div class="stat-value blue">${stats.active_challenges}</div>
+            <div class="stat-sub">${stats.captains} captains</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">💰 Revenue Snapshot</div></div>
+          <div style="padding:24px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px">
+            <div>
+              <div class="stat-label">Projected ARR</div>
+              <div class="stat-value" style="font-size:1.6rem;color:var(--green)">$${((stats.elite_members * 249) + (stats.standard_members * 199)).toLocaleString()}</div>
+              <div class="stat-sub">at current membership</div>
+            </div>
+            <div>
+              <div class="stat-label">Elite Revenue</div>
+              <div class="stat-value" style="font-size:1.6rem;color:var(--gold)">$${(stats.elite_members * 249).toLocaleString()}</div>
+              <div class="stat-sub">${stats.elite_members} × $249</div>
+            </div>
+            <div>
+              <div class="stat-label">Standard Revenue</div>
+              <div class="stat-value" style="font-size:1.6rem;color:var(--blue)">$${(stats.standard_members * 199).toLocaleString()}</div>
+              <div class="stat-sub">${stats.standard_members} × $199</div>
+            </div>
+          </div>
+        </div>
+      `}
+    </div>
+  `;
+}
+
+function renderMembers() {
+  return `
+    <div class="page-header"><div class="page-title">👥 Members</div></div>
+    <div class="page-body">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">All Members <span style="color:var(--gray);font-size:0.8rem;margin-left:8px">${memberTotal} total</span></div>
+          <div class="filters">
+            <input class="search-input" id="search-input" placeholder="Search name or email…" value="${search}" />
+            <select class="filter-select" id="tier-filter">
+              <option value="">All Tiers</option>
+              <option value="Standard" ${filterTier==='Standard'?'selected':''}>Standard</option>
+              <option value="Elite" ${filterTier==='Elite'?'selected':''}>Elite</option>
+            </select>
+            <select class="filter-select" id="pace-filter">
+              <option value="">All Paces</option>
+              <option value="A" ${filterPace==='A'?'selected':''}>Group A</option>
+              <option value="B" ${filterPace==='B'?'selected':''}>Group B</option>
+              <option value="C" ${filterPace==='C'?'selected':''}>Group C</option>
+              <option value="D" ${filterPace==='D'?'selected':''}>Group D</option>
+            </select>
+          </div>
+        </div>
+        ${members.length === 0 ? '<div class="loading-wrap"><div class="spinner"></div></div>' : `
+          <table>
+            <thead>
+              <tr>
+                <th>Member</th>
+                <th>Email</th>
+                <th>Tier</th>
+                <th>Pace</th>
+                <th>Miles</th>
+                <th>Joined</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${members.map(m => `
+                <tr>
+                  <td>
+                    <div style="font-weight:600">${m.name}</div>
+                    ${m.is_captain ? '<span class="badge badge-gold">⭐ Captain</span>' : ''}
+                  </td>
+                  <td style="color:var(--gray)">${m.email}</td>
+                  <td><span class="badge ${m.tier==='Elite'?'badge-gold':'badge-gray'}">${m.tier}</span></td>
+                  <td><span class="badge badge-blue">Group ${m.pace_group}</span></td>
+                  <td style="color:var(--green);font-weight:600">${m.total_miles || 0} mi</td>
+                  <td style="color:var(--gray)">${m.joined_at ? m.joined_at.slice(0,10) : '—'}</td>
+                  <td>
+                    <div class="actions">
+                      <button class="btn btn-sm ${m.is_captain ? 'btn-red' : 'btn-gold'}"
+                        data-action="${m.is_captain ? 'demote' : 'promote'}" data-id="${m.id}" data-name="${m.name}">
+                        ${m.is_captain ? 'Demote' : 'Promote'}
+                      </button>
+                      <button class="btn btn-sm btn-ghost"
+                        data-action="toggle-tier" data-id="${m.id}" data-tier="${m.tier}" data-name="${m.name}">
+                        → ${m.tier === 'Elite' ? 'Standard' : 'Elite'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div class="pagination">
+            <div class="page-info">Showing ${memberOffset + 1}–${Math.min(memberOffset + members.length, memberTotal)} of ${memberTotal}</div>
+            ${memberOffset > 0 ? '<button class="btn btn-sm btn-ghost" id="prev-btn">← Prev</button>' : ''}
+            ${memberOffset + members.length < memberTotal ? '<button class="btn btn-sm btn-ghost" id="next-btn">Next →</button>' : ''}
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+function renderActivity() {
+  return `
+    <div class="page-header"><div class="page-title">🏃 Activity Feed</div></div>
+    <div class="page-body">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Recent Runs (Last 50)</div></div>
+        ${activities.length === 0 ? '<div class="loading-wrap"><div class="spinner"></div></div>' :
+          activities.map(a => `
+            <div class="feed-item">
+              <div class="feed-icon">🏃</div>
+              <div>
+                <div class="feed-name">${a.user_name}</div>
+                <div class="feed-meta">${a.name} · Pace ${a.pace_group} · ${a.logged_at ? a.logged_at.slice(0,10) : ''}</div>
+              </div>
+              <div class="feed-miles">${a.distance} mi</div>
+            </div>
+          `).join('')
+        }
+      </div>
+    </div>
+  `;
+}
+
+// ── EVENT BINDING ──
+function bindEvents() {
+  // Login
+  const loginBtn = document.getElementById('login-btn');
+  if (loginBtn) {
+    loginBtn.addEventListener('click', handleLogin);
+    document.getElementById('admin-key-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+  }
+
+  // Logout
+  document.getElementById('logout-btn')?.addEventListener('click', () => { authed = false; render(); });
+
+  // Nav
+  document.querySelectorAll('[data-page]').forEach(el => {
+    el.addEventListener('click', () => { page = el.dataset.page; loadPageData(); });
+  });
+
+  // Search & filters
+  let searchTimer;
+  document.getElementById('search-input')?.addEventListener('input', e => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { search = e.target.value; memberOffset = 0; loadMembers(); }, 350);
+  });
+  document.getElementById('tier-filter')?.addEventListener('change', e => { filterTier = e.target.value; memberOffset = 0; loadMembers(); });
+  document.getElementById('pace-filter')?.addEventListener('change', e => { filterPace = e.target.value; memberOffset = 0; loadMembers(); });
+
+  // Pagination
+  document.getElementById('prev-btn')?.addEventListener('click', () => { memberOffset = Math.max(0, memberOffset - 50); loadMembers(); });
+  document.getElementById('next-btn')?.addEventListener('click', () => { memberOffset += 50; loadMembers(); });
+
+  // Member actions
+  document.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const { action, id, name, tier } = btn.dataset;
+      if (action === 'promote') updateMember(id, { is_captain: true }, `${name} promoted to Captain ⭐`);
+      if (action === 'demote')  updateMember(id, { is_captain: false }, `${name} demoted from Captain`);
+      if (action === 'toggle-tier') {
+        const newTier = tier === 'Elite' ? 'Standard' : 'Elite';
+        updateMember(id, { tier: newTier }, `${name} moved to ${newTier}`);
+      }
+    });
+  });
+}
+
+async function handleLogin() {
+  const key = document.getElementById('admin-key-input')?.value?.trim();
+  const errEl = document.getElementById('login-error');
+  try {
+    const res = await fetch(API + '/stats', {
+      headers: { 'x-admin-key': key, 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) throw new Error('Invalid key');
+    ADMIN_KEY = key;
+    authed = true;
+    loadAllData();
+  } catch {
+    if (errEl) errEl.innerHTML = '<div class="error-msg">Invalid admin key. Try again.</div>';
+  }
+}
+
+async function updateMember(id, body, successMsg) {
+  try {
+    await apiFetch(`/members/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+    showToast('✅ ' + successMsg);
+    loadMembers();
+  } catch(e) {
+    showToast('❌ ' + e.message, 'var(--red)');
+  }
+}
+
+async function loadStats() {
+  try { stats = await apiFetch('/stats'); render(); } catch(e) { console.error(e); }
+}
+
+async function loadMembers() {
+  const params = new URLSearchParams({ limit: 50, offset: memberOffset });
+  if (search)     params.set('search', search);
+  if (filterTier) params.set('tier', filterTier);
+  if (filterPace) params.set('pace_group', filterPace);
+  try {
+    const data = await apiFetch('/members?' + params);
+    members = data.members;
+    memberTotal = data.total;
+    render();
+  } catch(e) { console.error(e); }
+}
+
+async function loadActivities() {
+  try { const data = await apiFetch('/activities'); activities = data.activities; render(); } catch(e) { console.error(e); }
+}
+
+function loadPageData() {
+  if (page === 'overview') loadStats();
+  if (page === 'members')  loadMembers();
+  if (page === 'activity') loadActivities();
+  render();
+}
+
+function loadAllData() { loadStats(); loadMembers(); }
+
+// ── BOOT ──
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,117 @@
+// routes/admin.js — Admin panel API (protected by admin secret key)
+
+const router = require('express').Router();
+const { getDb } = require('../db');
+
+// Simple admin auth middleware — checks X-Admin-Key header
+function requireAdmin(req, res, next) {
+  const key = req.headers['x-admin-key'];
+  if (!key || key !== process.env.ADMIN_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+
+// GET /api/admin/stats — Platform overview
+router.get('/stats', requireAdmin, (req, res) => {
+  const db = getDb();
+
+  const members     = db.prepare(`SELECT COUNT(*) as total FROM users WHERE is_active = 1`).get();
+  const elite       = db.prepare(`SELECT COUNT(*) as total FROM users WHERE tier = 'Elite' AND is_active = 1`).get();
+  const standard    = db.prepare(`SELECT COUNT(*) as total FROM users WHERE tier = 'Standard' AND is_active = 1`).get();
+  const captains    = db.prepare(`SELECT COUNT(*) as total FROM users WHERE is_captain = 1 AND is_active = 1`).get();
+  const totalMiles  = db.prepare(`SELECT ROUND(SUM(distance),1) as total FROM activities`).get();
+  const totalRuns   = db.prepare(`SELECT COUNT(*) as total FROM activities`).get();
+  const challenges  = db.prepare(`SELECT COUNT(*) as total FROM challenges`).get();
+  const newThisWeek = db.prepare(`SELECT COUNT(*) as total FROM users WHERE joined_at >= date('now','-7 days')`).get();
+
+  res.json({
+    total_members:   members.total,
+    elite_members:   elite.total,
+    standard_members: standard.total,
+    captains:        captains.total,
+    total_miles:     totalMiles.total || 0,
+    total_runs:      totalRuns.total,
+    active_challenges: challenges.total,
+    new_this_week:   newThisWeek.total,
+  });
+});
+
+// GET /api/admin/members — All members with filters
+router.get('/members', requireAdmin, (req, res) => {
+  const db        = getDb();
+  const search    = req.query.search ? `%${req.query.search}%` : null;
+  const tier      = req.query.tier;
+  const paceGroup = req.query.pace_group;
+  const limit     = Math.min(parseInt(req.query.limit) || 50, 100);
+  const offset    = parseInt(req.query.offset) || 0;
+
+  let where = 'WHERE u.is_active = 1';
+  const params = [];
+  if (search)    { where += ' AND (u.name LIKE ? OR u.email LIKE ?)'; params.push(search, search); }
+  if (tier)      { where += ' AND u.tier = ?'; params.push(tier); }
+  if (paceGroup) { where += ' AND u.pace_group = ?'; params.push(paceGroup); }
+
+  const members = db.prepare(`
+    SELECT u.id, u.name, u.email, u.tier, u.pace_group, u.is_captain, u.is_active, u.joined_at,
+           ROUND(SUM(a.distance),1) AS total_miles,
+           COUNT(a.id) AS total_runs
+    FROM users u
+    LEFT JOIN activities a ON a.user_id = u.id
+    ${where}
+    GROUP BY u.id
+    ORDER BY u.joined_at DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, limit, offset);
+
+  const { total } = db.prepare(`SELECT COUNT(*) as total FROM users u ${where}`).get(...params);
+
+  res.json({ members, total, limit, offset });
+});
+
+// PATCH /api/admin/members/:id — Update member (promote/demote captain, change tier, deactivate)
+router.patch('/members/:id', requireAdmin, (req, res) => {
+  const db = getDb();
+  const { is_captain, tier, is_active } = req.body;
+
+  const existing = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Member not found' });
+
+  db.prepare(`
+    UPDATE users SET
+      is_captain = COALESCE(?, is_captain),
+      tier       = COALESCE(?, tier),
+      is_active  = COALESCE(?, is_active)
+    WHERE id = ?
+  `).run(
+    is_captain !== undefined ? (is_captain ? 1 : 0) : null,
+    tier || null,
+    is_active !== undefined ? (is_active ? 1 : 0) : null,
+    req.params.id
+  );
+
+  const updated = db.prepare('SELECT id, name, email, tier, pace_group, is_captain, is_active FROM users WHERE id = ?').get(req.params.id);
+  res.json({ member: updated });
+});
+
+// GET /api/admin/activities — Recent activity feed
+router.get('/activities', requireAdmin, (req, res) => {
+  const db = getDb();
+  const activities = db.prepare(`
+    SELECT a.*, u.name as user_name, u.pace_group
+    FROM activities a
+    JOIN users u ON u.id = a.user_id
+    ORDER BY a.logged_at DESC
+    LIMIT 50
+  `).all();
+  res.json({ activities });
+});
+
+// DELETE /api/admin/members/:id — Deactivate member
+router.delete('/members/:id', requireAdmin, (req, res) => {
+  const db = getDb();
+  db.prepare('UPDATE users SET is_active = 0 WHERE id = ?').run(req.params.id);
+  res.json({ message: 'Member deactivated' });
+});
+
+module.exports = router;

@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TEAM 3332 — Run Your World, Together</title>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --black: #080B12;
+      --dark: #0F1420;
+      --card: #131B2E;
+      --border: #1E2D45;
+      --blue: #0EA5E9;
+      --blue-light: #38BDF8;
+      --blue-glow: rgba(14,165,233,0.15);
+      --green: #10B981;
+      --gold: #F59E0B;
+      --gold-glow: rgba(245,158,11,0.15);
+      --white: #F0F4FF;
+      --gray: #8A9BB5;
+      --light: #C4CFDF;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Barlow', sans-serif;
+      background: var(--black);
+      color: var(--white);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 5%;
+      background: rgba(10,10,10,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 900;
+      font-size: 1.6rem;
+      letter-spacing: 0.04em;
+      color: var(--white);
+      text-decoration: none;
+    }
+
+    .nav-logo span { color: var(--blue); }
+
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--gray);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      letter-spacing: 0.03em;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--white); }
+
+    .nav-cta {
+      background: var(--blue);
+      color: var(--white) !important;
+      padding: 9px 22px;
+      border-radius: 6px;
+      font-weight: 600 !important;
+      transition: background 0.2s !important;
+    }
+
+    .nav-cta:hover { background: var(--blue-light) !important; color: var(--white) !important; }
+
+    /* ── HERO ── */
+    #hero {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 120px 5% 80px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-bg {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 70% 50% at 50% 0%, rgba(14,165,233,0.18) 0%, transparent 70%),
+        radial-gradient(ellipse 40% 40% at 80% 80%, rgba(14,165,233,0.07) 0%, transparent 60%);
+    }
+
+    .hero-grid {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+      background-size: 60px 60px;
+      mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 0%, transparent 80%);
+    }
+
+    .hero-content { position: relative; max-width: 860px; }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--blue-glow);
+      border: 1px solid rgba(14,165,233,0.3);
+      color: var(--blue-light);
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      border-radius: 100px;
+      margin-bottom: 28px;
+    }
+
+    .hero-badge::before {
+      content: '';
+      width: 6px; height: 6px;
+      background: var(--blue);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.4); }
+    }
+
+    h1 {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 900;
+      font-size: clamp(3.2rem, 8vw, 6.5rem);
+      line-height: 0.95;
+      letter-spacing: -0.01em;
+      text-transform: uppercase;
+      margin-bottom: 24px;
+    }
+
+    h1 .accent { color: var(--blue); }
+
+    .hero-sub {
+      font-size: clamp(1rem, 2vw, 1.2rem);
+      color: var(--light);
+      max-width: 560px;
+      margin: 0 auto 40px;
+      line-height: 1.7;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 60px;
+    }
+
+    .btn-primary {
+      background: var(--blue);
+      color: var(--white);
+      padding: 14px 32px;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 700;
+      text-decoration: none;
+      letter-spacing: 0.02em;
+      transition: all 0.2s;
+      border: 2px solid var(--blue);
+    }
+
+    .btn-primary:hover {
+      background: var(--blue-light);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(14,165,233,0.4);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--white);
+      padding: 14px 32px;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      text-decoration: none;
+      letter-spacing: 0.02em;
+      transition: all 0.2s;
+      border: 2px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--gray);
+      transform: translateY(-2px);
+    }
+
+    .hero-stats {
+      display: flex;
+      gap: 48px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .hero-stat { text-align: center; }
+
+    .hero-stat .num {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 800;
+      font-size: 2rem;
+      color: var(--white);
+    }
+
+    .hero-stat .label {
+      font-size: 0.78rem;
+      color: var(--gray);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    /* ── SECTION SHARED ── */
+    section { padding: 96px 5%; }
+
+    .section-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 800;
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      text-transform: uppercase;
+      line-height: 1;
+      margin-bottom: 16px;
+    }
+
+    .section-sub {
+      color: var(--gray);
+      font-size: 1rem;
+      max-width: 540px;
+      line-height: 1.7;
+    }
+
+    /* ── PROBLEM ── */
+    #problem {
+      background: var(--dark);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .problem-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      align-items: center;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .problem-items { display: flex; flex-direction: column; gap: 24px; margin-top: 40px; }
+
+    .problem-item {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .problem-icon {
+      width: 40px; height: 40px;
+      background: var(--blue-glow);
+      border: 1px solid rgba(14,165,233,0.25);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+
+    .problem-item h4 {
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 4px;
+    }
+
+    .problem-item p { color: var(--gray); font-size: 0.88rem; line-height: 1.6; }
+
+    .problem-visual {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px;
+      text-align: center;
+    }
+
+    .big-stat {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 900;
+      font-size: 5rem;
+      color: var(--blue);
+      line-height: 1;
+    }
+
+    .big-stat-label { color: var(--light); margin-top: 8px; font-size: 1rem; }
+    .big-stat-sub { color: var(--gray); font-size: 0.85rem; margin-top: 4px; }
+
+    .divider { width: 40px; height: 2px; background: var(--border); margin: 28px auto; }
+
+    /* ── FEATURES ── */
+    #features { max-width: 1200px; margin: 0 auto; }
+
+    .features-header { text-align: center; margin-bottom: 64px; }
+    .features-header .section-sub { margin: 0 auto; }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+
+    .feature-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .feature-card:hover {
+      border-color: rgba(14,165,233,0.4);
+      transform: translateY(-4px);
+    }
+
+    .feature-icon {
+      width: 48px; height: 48px;
+      background: var(--blue-glow);
+      border: 1px solid rgba(14,165,233,0.25);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem;
+      margin-bottom: 20px;
+    }
+
+    .feature-card h3 {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 700;
+      font-size: 1.15rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 10px;
+    }
+
+    .feature-card p { color: var(--gray); font-size: 0.88rem; line-height: 1.65; }
+
+    .feature-card.highlight {
+      background: linear-gradient(135deg, rgba(14,165,233,0.12) 0%, var(--card) 60%);
+      border-color: rgba(14,165,233,0.35);
+    }
+
+    /* ── HOW IT WORKS ── */
+    #how {
+      background: var(--dark);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .how-inner { max-width: 1000px; margin: 0 auto; }
+
+    .how-header { text-align: center; margin-bottom: 64px; }
+    .how-header .section-sub { margin: 0 auto; }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0;
+      position: relative;
+    }
+
+    .steps::before {
+      content: '';
+      position: absolute;
+      top: 28px;
+      left: calc(12.5% + 24px);
+      right: calc(12.5% + 24px);
+      height: 2px;
+      background: linear-gradient(90deg, var(--blue) 0%, rgba(255,87,34,0.2) 100%);
+    }
+
+    .step { text-align: center; padding: 0 16px; }
+
+    .step-num {
+      width: 56px; height: 56px;
+      background: var(--blue);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 900;
+      font-size: 1.3rem;
+      margin: 0 auto 20px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .step:not(:first-child) .step-num {
+      background: var(--card);
+      border: 2px solid var(--border);
+      color: var(--gray);
+    }
+
+    .step h4 {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 700;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 8px;
+    }
+
+    .step p { color: var(--gray); font-size: 0.83rem; line-height: 1.6; }
+
+    /* ── CAPTAIN ── */
+    #captain { max-width: 1100px; margin: 0 auto; }
+
+    .captain-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      align-items: center;
+    }
+
+    .captain-perks { display: flex; flex-direction: column; gap: 16px; margin-top: 32px; }
+
+    .captain-perk {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 18px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+
+    .captain-perk-icon { font-size: 1.2rem; }
+    .captain-perk span { font-size: 0.9rem; color: var(--light); }
+
+    .captain-badge-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 48px 40px;
+      text-align: center;
+    }
+
+    .badge-circle {
+      width: 120px; height: 120px;
+      background: linear-gradient(135deg, var(--blue), var(--blue-light));
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 3rem;
+      margin: 0 auto 24px;
+      box-shadow: 0 0 40px rgba(14,165,233,0.35);
+    }
+
+    .captain-badge-card h3 {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 800;
+      font-size: 1.6rem;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .captain-badge-card p { color: var(--gray); font-size: 0.9rem; line-height: 1.65; }
+
+    .badge-tag {
+      display: inline-block;
+      background: var(--blue-glow);
+      border: 1px solid rgba(14,165,233,0.25);
+      color: var(--blue-light);
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 5px 12px;
+      border-radius: 100px;
+      margin-top: 16px;
+    }
+
+    /* ── PRICING ── */
+    #pricing {
+      background: var(--dark);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .pricing-inner { max-width: 900px; margin: 0 auto; }
+    .pricing-header { text-align: center; margin-bottom: 56px; }
+    .pricing-header .section-sub { margin: 0 auto; }
+
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+    }
+
+    .pricing-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 40px;
+      position: relative;
+    }
+
+    .pricing-card.featured {
+      border-color: var(--gold);
+      background: linear-gradient(160deg, rgba(245,158,11,0.1) 0%, var(--card) 50%);
+    }
+
+    .featured-tag {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--gold);
+      color: #080B12;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 5px 16px;
+      border-radius: 100px;
+      white-space: nowrap;
+    }
+
+    .pricing-tier {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 700;
+      font-size: 0.85rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--gray);
+      margin-bottom: 8px;
+    }
+
+    .pricing-price {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 900;
+      font-size: 3.5rem;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .pricing-price span { font-size: 1.2rem; vertical-align: top; margin-top: 8px; display: inline-block; }
+    .pricing-period { color: var(--gray); font-size: 0.85rem; margin-bottom: 28px; }
+
+    .pricing-features { list-style: none; display: flex; flex-direction: column; gap: 12px; margin-bottom: 32px; }
+
+    .pricing-features li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 0.9rem;
+      color: var(--light);
+    }
+
+    .pricing-features li::before {
+      content: '✓';
+      color: var(--blue);
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .btn-price {
+      display: block;
+      text-align: center;
+      padding: 13px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      text-decoration: none;
+      transition: all 0.2s;
+      letter-spacing: 0.02em;
+    }
+
+    .btn-price-primary {
+      background: var(--gold);
+      color: #080B12;
+      border: 2px solid var(--gold);
+      font-weight: 800;
+    }
+
+    .btn-price-primary:hover {
+      background: #FBBF24;
+      box-shadow: 0 6px 20px rgba(245,158,11,0.4);
+    }
+
+    .btn-price-secondary {
+      background: transparent;
+      color: var(--white);
+      border: 2px solid var(--border);
+    }
+
+    .btn-price-secondary:hover { border-color: var(--gray); }
+
+    .early-adopter {
+      margin-top: 40px;
+      padding: 28px 32px;
+      background: linear-gradient(135deg, rgba(14,165,233,0.12), rgba(255,87,34,0.05));
+      border: 1px solid rgba(14,165,233,0.3);
+      border-radius: 16px;
+      text-align: center;
+    }
+
+    .early-adopter h4 {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 800;
+      font-size: 1.3rem;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .early-adopter p { color: var(--gray); font-size: 0.88rem; line-height: 1.6; }
+
+    .spots-bar {
+      width: 100%;
+      height: 6px;
+      background: var(--border);
+      border-radius: 100px;
+      margin: 16px 0 8px;
+      overflow: hidden;
+    }
+
+    .spots-fill {
+      height: 100%;
+      width: 34%;
+      background: var(--blue);
+      border-radius: 100px;
+    }
+
+    .spots-label {
+      font-size: 0.78rem;
+      color: var(--blue);
+      font-weight: 600;
+    }
+
+    /* ── MARKET ── */
+    #market { max-width: 1100px; margin: 0 auto; text-align: center; }
+
+    .market-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+      margin-top: 56px;
+    }
+
+    .market-stat {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px 24px;
+    }
+
+    .market-stat .num {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 900;
+      font-size: 2.4rem;
+      color: var(--blue);
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    .market-stat .label {
+      font-size: 0.85rem;
+      color: var(--light);
+      line-height: 1.5;
+    }
+
+    /* ── EARLY SIGNUP ── */
+    #signup {
+      background: var(--dark);
+      border-top: 1px solid var(--border);
+    }
+
+    .signup-inner {
+      max-width: 680px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .signup-inner .section-title { font-size: clamp(2.2rem, 5vw, 3.8rem); }
+
+    .signup-form {
+      display: flex;
+      gap: 12px;
+      margin-top: 36px;
+      flex-wrap: wrap;
+    }
+
+    .signup-form input {
+      flex: 1;
+      min-width: 240px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 18px;
+      color: var(--white);
+      font-family: 'Barlow', sans-serif;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .signup-form input:focus { border-color: var(--blue); }
+    .signup-form input::placeholder { color: var(--gray); }
+
+    .signup-form button {
+      background: var(--blue);
+      color: var(--white);
+      border: none;
+      border-radius: 8px;
+      padding: 14px 28px;
+      font-family: 'Barlow', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      letter-spacing: 0.02em;
+    }
+
+    .signup-form button:hover {
+      background: var(--blue-light);
+      box-shadow: 0 6px 20px rgba(14,165,233,0.4);
+    }
+
+    .signup-note { color: var(--gray); font-size: 0.8rem; margin-top: 12px; }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px 5%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .footer-logo {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 900;
+      font-size: 1.3rem;
+      color: var(--white);
+      text-decoration: none;
+    }
+
+    .footer-logo span { color: var(--blue); }
+
+    footer p { color: var(--gray); font-size: 0.82rem; }
+
+    .footer-links { display: flex; gap: 24px; }
+    .footer-links a { color: var(--gray); font-size: 0.82rem; text-decoration: none; transition: color 0.2s; }
+    .footer-links a:hover { color: var(--white); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .problem-grid, .captain-grid, .pricing-grid { grid-template-columns: 1fr; gap: 40px; }
+      .features-grid { grid-template-columns: 1fr; }
+      .steps { grid-template-columns: 1fr 1fr; gap: 32px; }
+      .steps::before { display: none; }
+      .market-stats { grid-template-columns: 1fr 1fr; }
+      .hero-stats { gap: 28px; }
+      .signup-form { flex-direction: column; }
+      .signup-form input, .signup-form button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-logo" href="#">TEAM <span>3332</span></a>
+  <ul class="nav-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#how">How It Works</a></li>
+    <li><a href="#pricing">Pricing</a></li>
+    <li><a href="#captain">Captains</a></li>
+    <li><a href="#signup" class="nav-cta">Join Free</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-grid"></div>
+  <div class="hero-content">
+    <div class="hero-badge">🌍 Now Accepting Founding Members</div>
+    <h1>Run Your World<br /><span class="accent">Together.</span></h1>
+    <p class="hero-sub">TEAM 3332 is the global virtual run team built for every runner — where community, competition, and real rewards come together on one platform.</p>
+    <div class="hero-actions">
+      <a href="#signup" class="btn-primary">Join Free — First 250 Members</a>
+      <a href="#features" class="btn-secondary">See How It Works</a>
+    </div>
+    <div class="hero-stats">
+      <div class="hero-stat">
+        <div class="num">50M+</div>
+        <div class="label">Runners in the US Alone</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num">$30B+</div>
+        <div class="label">Virtual Fitness Market by 2028</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num">250</div>
+        <div class="label">Free Founding Spots</div>
+      </div>
+      <div class="hero-stat">
+        <div class="num">All Levels</div>
+        <div class="label">Welcome Here</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROBLEM -->
+<section id="problem">
+  <div class="problem-grid">
+    <div>
+      <div class="section-label">The Problem</div>
+      <h2 class="section-title">Running Is Powerful.<br />But It Feels Lonely.</h2>
+      <div class="problem-items">
+        <div class="problem-item">
+          <div class="problem-icon">🏃</div>
+          <div>
+            <h4>Disconnected Runners</h4>
+            <p>Most runners train alone with no team, no support system, and little accountability to keep them going.</p>
+          </div>
+        </div>
+        <div class="problem-item">
+          <div class="problem-icon">🚫</div>
+          <div>
+            <h4>Inaccessible Local Clubs</h4>
+            <p>City run clubs often exclude slower runners, beginners, or anyone with an unconventional schedule.</p>
+          </div>
+        </div>
+        <div class="problem-item">
+          <div class="problem-icon">📱</div>
+          <div>
+            <h4>No Real Virtual Team</h4>
+            <p>Strava and NRC offer tracking and feeds — but no team identity, no mentorship, no real belonging.</p>
+          </div>
+        </div>
+        <div class="problem-item">
+          <div class="problem-icon">🌐</div>
+          <div>
+            <h4>Global Runners, No Global Home</h4>
+            <p>Tens of millions of runners globally with no single platform connecting them through a structured, rewarding team.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="problem-visual">
+      <div class="big-stat">+15%</div>
+      <div class="big-stat-label">improvement in habit retention when training is social and community-driven</div>
+      <div class="divider"></div>
+      <div class="big-stat" style="font-size: 3.5rem;">1.25M+</div>
+      <div class="big-stat-label">marathon finishers annually</div>
+      <div class="big-stat-sub">— and growing post-2020</div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div style="max-width:1200px; margin: 0 auto;">
+    <div class="features-header">
+      <div class="section-label">The Platform</div>
+      <h2 class="section-title">Everything a Runner Needs.<br />Nothing They Don't.</h2>
+      <p class="section-sub">TEAM 3332 merges Strava-style tracking with real team culture, gamified growth, and tangible rewards.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card highlight">
+        <div class="feature-icon">📍</div>
+        <h3>GPS Activity Tracking</h3>
+        <p>Log runs via GPS, upload from your watch, or connect third-party apps. Weekly, monthly, and yearly summaries with custom goal setting for distance, pace, and frequency.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🏆</div>
+        <h3>Leaderboards & Challenges</h3>
+        <p>Time-limited virtual races, ongoing monthly challenges, and pace-group leaderboards. Public and private modes. Performance-based badges for every milestone.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">👥</div>
+        <h3>Team Profiles & Community</h3>
+        <p>Member profiles show pace group, tier badge, and achievements. Share maps, photos, and milestones. Community discussions hosted 2x weekly.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🎖️</div>
+        <h3>Captain Badge System</h3>
+        <p>Earn a Captain designation through performance and community involvement. Host weekly group runs, create challenges, and mentor other members.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🎁</div>
+        <h3>Real Perks & Discounts</h3>
+        <p>Discounts on shoes, race fees, apparel, and partner products. Elite members get deeper access to exclusive gear drops and race entries.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🌍</div>
+        <h3>Virtual + In-Person Races</h3>
+        <p>Time-qualifying virtual races, monthly in-person runs in select cities, and team-based challenges that connect local runners globally.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how">
+  <div class="how-inner">
+    <div class="how-header">
+      <div class="section-label">How It Works</div>
+      <h2 class="section-title">From Sign-Up to Team.</h2>
+      <p class="section-sub">Getting started takes less than 5 minutes. Growing takes however far you want to go.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h4>Join the Team</h4>
+        <p>Sign up, pick your membership tier, and complete your runner profile with pace group and goals.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h4>Connect & Track</h4>
+        <p>Link your GPS watch, phone, or Strava account. Log every run and see it reflected in real time on your team feed.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h4>Compete & Connect</h4>
+        <p>Join monthly challenges, climb pace-group leaderboards, and engage with your captain and fellow members.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <h4>Earn & Level Up</h4>
+        <p>Hit milestones to earn badges, unlock perks, and climb toward a Captain designation with your own challenges.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CAPTAIN SYSTEM -->
+<section id="captain">
+  <div class="captain-grid">
+    <div class="captain-badge-card">
+      <div class="badge-circle">🎖️</div>
+      <h3>Become a Captain</h3>
+      <p>The Captain badge is earned — not bought. Through consistent performance, qualifying runs, and community leadership, standout members rise to guide others and shape the culture of TEAM 3332.</p>
+      <div class="badge-tag">By Invite · By Performance · By Community</div>
+    </div>
+    <div>
+      <div class="section-label">Leadership</div>
+      <h2 class="section-title">Run the Team.<br />Not Just the Miles.</h2>
+      <p class="section-sub">Captains aren't just fast runners. They're community builders who host runs, mentor members, and earn exclusive rewards for their service.</p>
+      <div class="captain-perks">
+        <div class="captain-perk"><span class="captain-perk-icon">🏃</span><span>Host weekly virtual or in-person group runs</span></div>
+        <div class="captain-perk"><span class="captain-perk-icon">📋</span><span>Create and propose custom team challenges</span></div>
+        <div class="captain-perk"><span class="captain-perk-icon">🧠</span><span>Mentor runners and offer training guidance</span></div>
+        <div class="captain-perk"><span class="captain-perk-icon">👕</span><span>Earn exclusive captain-only apparel and gear</span></div>
+        <div class="captain-perk"><span class="captain-perk-icon">✨</span><span>Visible Captain badge on your member profile</span></div>
+        <div class="captain-perk"><span class="captain-perk-icon">💰</span><span>Deeper discounts on shoes, races, and gear</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section id="pricing">
+  <div class="pricing-inner">
+    <div class="pricing-header">
+      <div class="section-label">Membership</div>
+      <h2 class="section-title">Simple. Affordable. Worth It.</h2>
+      <p class="section-sub">One annual fee. Full team access. Real perks that more than cover the cost.</p>
+    </div>
+    <div class="pricing-grid">
+      <div class="pricing-card">
+        <div class="pricing-tier">Standard</div>
+        <div class="pricing-price"><span>$</span>199</div>
+        <div class="pricing-period">per year — billed annually</div>
+        <ul class="pricing-features">
+          <li>Full app access & GPS tracking</li>
+          <li>All virtual races & monthly challenges</li>
+          <li>Community forums & weekly discussions</li>
+          <li>Pace-group leaderboards & badges</li>
+          <li>Monthly recognition & giveaway eligibility</li>
+          <li>Discounts on gear, apparel & race fees</li>
+          <li>In-person runs when available</li>
+          <li>Captain mentorship access</li>
+        </ul>
+        <a href="#signup" class="btn-price btn-price-secondary">Get Started</a>
+      </div>
+      <div class="pricing-card featured">
+        <div class="featured-tag">⚡ Most Popular</div>
+        <div class="pricing-tier">Elite</div>
+        <div class="pricing-price"><span>$</span>249</div>
+        <div class="pricing-period">per year — billed annually</div>
+        <ul class="pricing-features">
+          <li>Everything in Standard</li>
+          <li>Elite-only competitive challenges & races</li>
+          <li>Time-based qualification leaderboards</li>
+          <li>Deeper discounts on top-tier gear & entries</li>
+          <li>Early access to limited apparel drops</li>
+          <li>Virtual elite training sessions</li>
+          <li>Eligibility for Captain consideration</li>
+          <li>Priority support & feature access</li>
+        </ul>
+        <a href="#signup" class="btn-price btn-price-primary">Join Elite</a>
+      </div>
+    </div>
+    <div class="early-adopter">
+      <h4>🟡 Founding Member Offer — First 250 Athletes</h4>
+      <p>Get a free 3-month trial membership. After your trial, lock in a 20% discount on your first year. No credit card required to start.</p>
+      <div class="spots-bar"><div class="spots-fill"></div></div>
+      <div class="spots-label">86 of 250 founding spots claimed — join before they're gone</div>
+    </div>
+  </div>
+</section>
+
+<!-- MARKET -->
+<section id="market">
+  <div class="section-label">Market Opportunity</div>
+  <h2 class="section-title">The Numbers Don't Lie.</h2>
+  <p class="section-sub" style="margin: 0 auto;">We're entering a massive, validated market — and building the one thing it's missing: a real team.</p>
+  <div class="market-stats">
+    <div class="market-stat">
+      <div class="num">50M+</div>
+      <div class="label">Runners in the US alone — tens of millions more globally</div>
+    </div>
+    <div class="market-stat">
+      <div class="num">$30B+</div>
+      <div class="label">Virtual fitness market projected by 2028</div>
+    </div>
+    <div class="market-stat">
+      <div class="num">+15%</div>
+      <div class="label">Habit retention boost when training is social & structured</div>
+    </div>
+    <div class="market-stat">
+      <div class="num">1.25M+</div>
+      <div class="label">Marathon finishers annually — virtual races still surging</div>
+    </div>
+  </div>
+</section>
+
+<!-- SIGNUP -->
+<section id="signup">
+  <div class="signup-inner">
+    <div class="section-label">Get Early Access</div>
+    <h2 class="section-title">Be One of the<br /><span style="color: var(--blue);">First 250.</span></h2>
+    <p class="section-sub" style="margin: 0 auto;">Founding members get a free 3-month trial + 20% off their first year. No credit card. No commitment. Just run.</p>
+    <form class="signup-form" onsubmit="handleSignup(event)">
+      <input type="text" placeholder="Your name" required />
+      <input type="email" placeholder="Email address" required />
+      <button type="submit">Claim Your Spot →</button>
+    </form>
+    <p class="signup-note">📍 Launching in New Orleans · Expanding globally · runteam3332@gmail.com</p>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <a class="footer-logo" href="#">TEAM <span>3332</span></a>
+  <p>© 2025 TEAM 3332. Global Virtual Run Team. All rights reserved.</p>
+  <div class="footer-links">
+    <a href="mailto:runteam3332@gmail.com">Contact</a>
+    <a href="#pricing">Membership</a>
+    <a href="#signup">Join</a>
+  </div>
+</footer>
+
+<script>
+  function handleSignup(e) {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    btn.textContent = '✓ You\'re on the list!';
+    btn.style.background = '#2e7d32';
+    btn.disabled = true;
+    e.target.reset();
+  }
+
+  // Smooth scroll for all anchor links
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+      const target = document.querySelector(a.getAttribute('href'));
+      if (target) {
+        e.preventDefault();
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  });
+
+  // Fade-in on scroll
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.style.opacity = '1';
+        entry.target.style.transform = 'translateY(0)';
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.feature-card, .market-stat, .pricing-card, .step, .problem-item, .captain-perk').forEach(el => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(20px)';
+    el.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+    observer.observe(el);
+  });
+</script>
+</body>
+</html>
