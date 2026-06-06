@@ -83,7 +83,7 @@ function sendWelcomeEmail(user) {
 }
 
 function sendPasswordResetEmail(user, token) {
-  const link = `${CLIENT_URL}/app/reset-password?token=${token}`;
+  const link = `${CLIENT_URL}/app/reset-password.html?token=${token}`;
   const html = layout(`
     <h1 style="margin:0 0 12px;font-size:22px;">Reset your password</h1>
     <p style="margin:0 0 16px;color:#334155;">
