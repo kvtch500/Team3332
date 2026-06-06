@@ -3,8 +3,10 @@
 const router  = require('express').Router();
 const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
+const crypto  = require('crypto');
 const { getDb } = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { sendWelcomeEmail, sendPasswordResetEmail } = require('../lib/mailer');
 
 function signToken(user) {
   return jwt.sign(
@@ -41,6 +43,9 @@ router.post('/register', (req, res) => {
 
   const user  = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
   const token = signToken(user);
+
+  // Fire welcome email (non-blocking — never fails the signup)
+  sendWelcomeEmail(user).catch((e) => console.error('[auth] welcome email failed:', e));
 
   res.status(201).json({ token, user: safeUser(user) });
 });
@@ -104,6 +109,52 @@ router.post('/change-password', requireAuth, (req, res) => {
     .run(bcrypt.hashSync(new_password, 10), req.user.id);
 
   res.json({ message: 'Password updated successfully' });
+});
+
+// POST /api/auth/forgot-password — request a reset link
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'email is required' });
+
+  const db   = getDb();
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+
+  // Always return success — don't reveal whether an email is registered.
+  if (user) {
+    const token   = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+
+    // Invalidate any prior unused tokens for this user, then store the new one.
+    db.prepare('UPDATE password_resets SET used = 1 WHERE user_id = ? AND used = 0').run(user.id);
+    db.prepare('INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)')
+      .run(user.id, token, expires);
+
+    sendPasswordResetEmail(user, token).catch((e) => console.error('[auth] reset email failed:', e));
+  }
+
+  res.json({ message: 'If that email is registered, a reset link is on its way.' });
+});
+
+// POST /api/auth/reset-password — consume a reset token, set new password
+router.post('/reset-password', (req, res) => {
+  const { token, new_password } = req.body;
+  if (!token || !new_password)
+    return res.status(400).json({ error: 'token and new_password are required' });
+
+  if (new_password.length < 6)
+    return res.status(400).json({ error: 'New password must be at least 6 characters' });
+
+  const db  = getDb();
+  const row = db.prepare('SELECT * FROM password_resets WHERE token = ?').get(token);
+
+  if (!row || row.used || new Date(row.expires_at) < new Date())
+    return res.status(400).json({ error: 'This reset link is invalid or has expired' });
+
+  db.prepare('UPDATE users SET password = ? WHERE id = ?')
+    .run(bcrypt.hashSync(new_password, 10), row.user_id);
+  db.prepare('UPDATE password_resets SET used = 1 WHERE id = ?').run(row.id);
+
+  res.json({ message: 'Password reset successfully. You can now log in.' });
 });
 
 module.exports = router;
