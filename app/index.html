@@ -940,6 +940,7 @@ function AuthPage({ onLogin }) {
   const [tab, setTab]   = useState('login');
   const [form, setForm] = useState({ name:'', email:'', password:'', tier:'Standard', pace_group:'C' });
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
 
   const set = (k, v) => setForm(f => ({...f, [k]: v}));
@@ -966,6 +967,17 @@ function AuthPage({ onLogin }) {
     finally { setLoading(false); }
   };
 
+  const handleForgot = async () => {
+    setError(''); setNotice('');
+    if (!form.email) { setError('Enter your email above, then tap “Forgot password?”'); return; }
+    setLoading(true);
+    try {
+      await api.post('/auth/forgot-password', { email: form.email });
+      setNotice('If that email is registered, a reset link is on its way. Check your inbox (and spam).');
+    } catch(e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
   const onKey = (e, fn) => { if (e.key === 'Enter') fn(); };
 
   return (
@@ -979,11 +991,12 @@ function AuthPage({ onLogin }) {
           <button className={`auth-tab ${tab==='signup'?'active':''}`} onClick={()=>{setTab('signup');setError('')}}>Join Free</button>
         </div>
         {error && <div style={{background:'rgba(244,67,54,0.1)',border:'1px solid rgba(244,67,54,0.3)',borderRadius:8,padding:'10px 14px',fontSize:'0.82rem',color:'#ef5350',marginBottom:16}}>{error}</div>}
+        {notice && <div style={{background:'rgba(16,185,129,0.1)',border:'1px solid rgba(16,185,129,0.35)',borderRadius:8,padding:'10px 14px',fontSize:'0.82rem',color:'#6EE7B7',marginBottom:16}}>{notice}</div>}
         {tab === 'login' ? (
           <>
             <div className="form-group"><label>Email</label><input type="email" placeholder="you@example.com" value={form.email} onChange={e=>set('email',e.target.value)} onKeyDown={e=>onKey(e,handleLogin)} /></div>
             <div className="form-group"><label>Password</label><input type="password" placeholder="••••••••" value={form.password} onChange={e=>set('password',e.target.value)} onKeyDown={e=>onKey(e,handleLogin)} /></div>
-            <div style={{marginBottom:16,textAlign:'right'}}><span style={{fontSize:'0.8rem',color:'var(--blue)',cursor:'pointer'}}>Forgot password?</span></div>
+            <div style={{marginBottom:16,textAlign:'right'}}><span onClick={handleForgot} style={{fontSize:'0.8rem',color:'var(--blue)',cursor:'pointer'}}>Forgot password?</span></div>
             <button className="btn btn-primary btn-full" onClick={handleLogin} disabled={loading}>
               {loading ? <Spinner /> : 'Sign In'}
             </button>
