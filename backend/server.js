@@ -41,6 +41,7 @@ app.use('/api/stripe',      require('./routes/stripe'));
 // ── STATIC FILES ─────────────────────────────────────
 app.use('/app',   express.static(path.join(__dirname, '../app')));
 app.use('/admin', express.static(path.join(__dirname, '../admin')));
+app.use('/',      express.static(path.join(__dirname, '../landing'))); // marketing site at team3332.com root
 
 // ── HEALTH CHECK ─────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
