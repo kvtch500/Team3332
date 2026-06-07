@@ -87,16 +87,20 @@ router.delete('/:id/join', requireAuth, (req, res) => {
 
 // POST /api/challenges — Captain creates a challenge
 router.post('/', requireAuth, requireCaptain, (req, res) => {
-  const { title, description, icon, type, goal_value, reward, tier_req, starts_at, ends_at } = req.body;
+  const { title, description, icon, type, goal_value, reward, tier_req, starts_at, ends_at, sport } = req.body;
 
   if (!title || !type || !goal_value || !starts_at || !ends_at)
     return res.status(400).json({ error: 'title, type, goal_value, starts_at, ends_at are required' });
 
+  const sportVal = sport || 'Run'; // challenges are runs-only unless explicitly opened up
+  if (!['Run', 'Walk', 'Any'].includes(sportVal))
+    return res.status(400).json({ error: "sport must be 'Run', 'Walk', or 'Any'" });
+
   const db   = getDb();
   const info = db.prepare(`
-    INSERT INTO challenges (title, description, icon, type, goal_value, reward, tier_req, starts_at, ends_at, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(title, description, icon || '🏅', type, goal_value, reward, tier_req || null, starts_at, ends_at, req.user.id);
+    INSERT INTO challenges (title, description, icon, type, sport, goal_value, reward, tier_req, starts_at, ends_at, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(title, description, icon || '🏅', type, sportVal, goal_value, reward, tier_req || null, starts_at, ends_at, req.user.id);
 
   const challenge = db.prepare('SELECT * FROM challenges WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json({ challenge });

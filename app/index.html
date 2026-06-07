@@ -1245,7 +1245,7 @@ function Dashboard({ user }) {
         <div className="grid-4 mb-24">
           {[
             { label: 'Total Miles', value: stats?.total_miles ?? '—', change: `${stats?.weekly_miles ?? 0} mi this week`, icon: '🏃' },
-            { label: 'Total Runs',  value: stats?.total_runs ?? '—',  change: 'all time', icon: '📍' },
+            { label: 'Activities',  value: stats?.total_runs ?? '—',  change: 'runs + walks, all time', icon: '📍' },
             { label: 'Calories',    value: stats?.total_calories ? `${(stats.total_calories/1000).toFixed(1)}k` : '—', change: 'burned total', icon: '🔥' },
             { label: 'Streak',      value: stats?.streak ? `${stats.streak}d` : '0d', change: 'Keep it up!', icon: '⚡' },
           ].map((s, i) => (
@@ -2011,7 +2011,7 @@ function Challenges({ onToast }) {
                   </div>
                 )}
                 <div className="challenge-footer">
-                  <div className="challenge-meta">👥 {c.participant_count} runners · {daysLeft(c.ends_at)}d left</div>
+                  <div className="challenge-meta">{c.sport==='Any' ? '🏃+🚶 Runs & walks' : c.sport==='Walk' ? '🚶 Walks only' : '🏃 Runs only'} · 👥 {c.participant_count} · {daysLeft(c.ends_at)}d left</div>
                   <button
                     className={`btn btn-xs ${c.joined?'btn-ghost':'btn-primary'}`}
                     onClick={()=>toggleJoin(c)}

@@ -48,6 +48,7 @@ const schema = `
     description  TEXT,
     icon         TEXT    DEFAULT '🏅',
     type         TEXT    NOT NULL DEFAULT 'distance' CHECK(type IN ('distance', 'frequency', 'pace', 'streak')),
+    sport        TEXT    NOT NULL DEFAULT 'Run' CHECK(sport IN ('Run', 'Walk', 'Any')),
     goal_value   REAL    NOT NULL,
     reward       TEXT,
     tier_req     TEXT    DEFAULT NULL CHECK(tier_req IN ('Standard', 'Elite', NULL)),

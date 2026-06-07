@@ -100,7 +100,7 @@ router.post('/', requireAuth, (req, res) => {
   `).run(req.user.id, name, type, distance, pace, duration, calories || Math.round(distance * 82), notes, route_data, logged_at);
 
   // Auto-update challenge progress
-  updateChallengeProgress(db, req.user.id, { distance, pace });
+  updateChallengeProgress(db, req.user.id, { distance, pace, type });
 
   const activity = db.prepare('SELECT * FROM activities WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json({ activity });
@@ -134,17 +134,22 @@ router.delete('/:id', requireAuth, (req, res) => {
   res.json({ message: 'Activity deleted' });
 });
 
-// Helper: bump challenge progress after logging a run
-function updateChallengeProgress(db, userId, { distance, pace }) {
+// Helper: bump challenge progress after logging an activity.
+// Each challenge has a sport ('Run' | 'Walk' | 'Any', default 'Run') — an activity
+// only advances challenges whose sport matches, so walks never touch run challenges.
+function updateChallengeProgress(db, userId, { distance, pace, type }) {
   const now = new Date().toISOString();
   const active = db.prepare(`
-    SELECT cm.*, c.type, c.goal_value FROM challenge_members cm
+    SELECT cm.*, c.type, c.goal_value, c.sport FROM challenge_members cm
     JOIN challenges c ON c.id = cm.challenge_id
     WHERE cm.user_id = ? AND cm.completed = 0
       AND c.starts_at <= ? AND c.ends_at >= ?
   `).all(userId, now, now);
 
+  const actType = type || 'Run';
   for (const cm of active) {
+    const sport = cm.sport || 'Run';
+    if (sport !== 'Any' && sport !== actType) continue;
     let increment = 0;
     if (cm.type === 'distance') increment = distance;
     else if (cm.type === 'frequency') increment = 1;
@@ -164,3 +169,4 @@ function updateChallengeProgress(db, userId, { distance, pace }) {
 }
 
 module.exports = router;
+module.exports.updateChallengeProgress = updateChallengeProgress; // exported for tests

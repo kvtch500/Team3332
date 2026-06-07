@@ -16,6 +16,12 @@ function getDb() {
     db = new Database(DB_PATH);
     // Run schema (all CREATE IF NOT EXISTS — safe to run every boot)
     db.exec(schema);
+    // Lightweight auto-migrations for existing databases (safe to run every boot)
+    try {
+      db.exec(`ALTER TABLE challenges ADD COLUMN sport TEXT NOT NULL DEFAULT 'Run' CHECK(sport IN ('Run', 'Walk', 'Any'))`);
+    } catch (e) {
+      if (!/duplicate column/i.test(e.message)) throw e;
+    }
   }
   return db;
 }
