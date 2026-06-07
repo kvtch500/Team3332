@@ -1264,7 +1264,7 @@ function Dashboard({ user }) {
             {activities.length === 0 && <div className="empty-state" style={{padding:'24px 0'}}><p>No runs yet. Log your first one!</p></div>}
             {activities.map(a => (
               <div key={a.id} className="activity-item">
-                <div className="activity-icon">🏃</div>
+                <div className="activity-icon">{a.type === 'Walk' ? '🚶' : '🏃'}</div>
                 <div>
                   <div className="activity-title">{a.name}</div>
                   <div className="activity-meta">{formatDate(a.logged_at)}</div>
@@ -1318,6 +1318,223 @@ function Dashboard({ user }) {
 }
 
 /* ══════════════════════════════════════
+   GPS RECORDER (one-touch record)
+══════════════════════════════════════ */
+function havMeters(a, b) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+  const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*rad) * Math.cos(b.lat*rad) * Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+// Pure step function: takes recorder state + a GPS fix, returns updated state.
+// Filters: poor accuracy (>35m), jitter (<3m), GPS jumps (>12 m/s).
+function recorderStep(st, fix) {
+  const { lat, lon, accuracy, t } = fix;
+  if (accuracy != null && accuracy > 35) return st;
+  if (!st.last) return { ...st, last: { lat, lon, t }, points: [[lat, lon]] };
+  const d = havMeters(st.last, { lat, lon });
+  if (d < 3) return st;
+  const dt = (t - st.last.t) / 1000;
+  if (dt > 0 && d / dt > 12) return st;
+  return {
+    ...st,
+    meters: st.meters + d,
+    last: { lat, lon, t },
+    points: st.points.length < 4000 ? [...st.points, [lat, lon]] : st.points,
+  };
+}
+
+function fmtClock(secs) {
+  const h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60), s = secs%60;
+  return h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${m}:${String(s).padStart(2,'0')}`;
+}
+function fmtPace(secs, miles) {
+  if (!miles || miles < 0.05) return '—:—';
+  const spm = secs / miles;
+  if (spm > 3600) return '—:—';
+  const m = Math.floor(spm/60), s = Math.round(spm%60);
+  return s === 60 ? `${m+1}:00` : `${m}:${String(s).padStart(2,'0')}`;
+}
+
+function RecordRun({ onClose, onSaved, onToast }) {
+  const [phase, setPhase] = useState('idle');     // idle | recording | review
+  const [actType, setActType] = useState('Run');
+  const [gpsStatus, setGpsStatus] = useState('waiting'); // waiting | ready | denied | error
+  const [elapsed, setElapsed] = useState(0);
+  const [meters, setMeters] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState('');
+  const stRef = useRef({ meters: 0, last: null, points: [] });
+  const watchRef = useRef(null);
+  const timerRef = useRef(null);
+  const startRef = useRef(null);
+  const wakeRef = useRef(null);
+
+  const miles = meters / 1609.344;
+
+  // Pre-acquire GPS on open so Start is instant
+  useEffect(() => {
+    if (!navigator.geolocation) { setGpsStatus('error'); return; }
+    const id = navigator.geolocation.watchPosition(
+      pos => setGpsStatus(pos.coords.accuracy <= 50 ? 'ready' : 'waiting'),
+      err => setGpsStatus(err.code === 1 ? 'denied' : 'error'),
+      { enableHighAccuracy: true, maximumAge: 0 }
+    );
+    return () => navigator.geolocation.clearWatch(id);
+  }, []);
+
+  // Keep screen awake while recording (re-acquire when app returns to foreground)
+  useEffect(() => {
+    if (phase !== 'recording') return;
+    let active = true;
+    const acquire = async () => {
+      try { if (active && 'wakeLock' in navigator) wakeRef.current = await navigator.wakeLock.request('screen'); }
+      catch (e) { /* not fatal */ }
+    };
+    const onVis = () => { if (document.visibilityState === 'visible') acquire(); };
+    acquire();
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      active = false;
+      document.removeEventListener('visibilitychange', onVis);
+      if (wakeRef.current) { wakeRef.current.release().catch(()=>{}); wakeRef.current = null; }
+    };
+  }, [phase]);
+
+  const start = () => {
+    stRef.current = { meters: 0, last: null, points: [] };
+    startRef.current = new Date();
+    setMeters(0); setElapsed(0);
+    watchRef.current = navigator.geolocation.watchPosition(
+      pos => {
+        stRef.current = recorderStep(stRef.current, {
+          lat: pos.coords.latitude, lon: pos.coords.longitude,
+          accuracy: pos.coords.accuracy, t: pos.timestamp,
+        });
+        setMeters(stRef.current.meters);
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 1000 }
+    );
+    timerRef.current = setInterval(() => {
+      setElapsed(Math.round((Date.now() - startRef.current.getTime()) / 1000));
+    }, 1000);
+    setPhase('recording');
+  };
+
+  const stop = () => {
+    if (watchRef.current != null) { navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    const hour = startRef.current.getHours();
+    const tod = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
+    setName(`${tod} ${actType}`);
+    setPhase('review');
+  };
+
+  useEffect(() => () => { // cleanup if component unmounts mid-recording
+    if (watchRef.current != null) navigator.geolocation.clearWatch(watchRef.current);
+    if (timerRef.current) clearInterval(timerRef.current);
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const dist = Math.round(miles * 100) / 100;
+      const st = stRef.current;
+      const step = Math.max(1, Math.ceil(st.points.length / 200));
+      const route = st.points.filter((_, i) => i % step === 0).map(p => [Math.round(p[0]*1e5)/1e5, Math.round(p[1]*1e5)/1e5]);
+      await api.post('/activities', {
+        name: name || `My ${actType}`,
+        type: actType,
+        distance: dist,
+        pace: fmtPace(elapsed, miles) === '—:—' ? null : fmtPace(elapsed, miles),
+        duration: fmtClock(elapsed),
+        route_data: route.length >= 2 ? JSON.stringify({ source: 'recorded', points: route }) : null,
+        logged_at: startRef.current.toISOString().slice(0, 19).replace('T', ' '),
+      });
+      onSaved();
+      onToast(`${actType} saved — ${dist} mi!`);
+      onClose();
+    } catch (e) { onToast(`Error: ${e.message}`); }
+    finally { setSaving(false); }
+  };
+
+  const big = { fontFamily: 'Barlow Condensed', fontWeight: 700, lineHeight: 1 };
+  const gpsMsg = {
+    waiting: '📡 Acquiring GPS…', ready: '📡 GPS ready',
+    denied: '⚠️ Location access denied — enable it in your browser settings',
+    error: '⚠️ GPS unavailable on this device',
+  }[gpsStatus];
+
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:300,background:'var(--dark, #0b0f14)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:24}}>
+      {phase === 'idle' && (
+        <div style={{textAlign:'center',width:'100%',maxWidth:380}}>
+          <div className="flex gap-8" style={{marginBottom:28}}>
+            {['Run','Walk'].map(t => (
+              <button key={t} className={`btn ${actType===t?'btn-primary':'btn-ghost'}`} style={{flex:1}} onClick={()=>setActType(t)}>
+                {t==='Run'?'🏃 Run':'🚶 Walk'}
+              </button>
+            ))}
+          </div>
+          <div style={{fontSize:'0.85rem',color:'var(--gray)',marginBottom:24}}>{gpsMsg}</div>
+          <button onClick={start} disabled={gpsStatus==='denied'||gpsStatus==='error'}
+            style={{...big,width:170,height:170,borderRadius:'50%',border:'none',cursor:'pointer',fontSize:'1.6rem',
+              background:'var(--blue, #D4AF37)',color:'#0b0f14',opacity:(gpsStatus==='denied'||gpsStatus==='error')?0.4:1}}>
+            START
+          </button>
+          {gpsStatus==='waiting' && <div style={{fontSize:'0.75rem',color:'var(--gray)',marginTop:14}}>You can start now — distance begins counting at first GPS lock</div>}
+          <div style={{marginTop:28}}><button className="btn btn-ghost btn-sm" onClick={onClose}>Cancel</button></div>
+          <div style={{fontSize:'0.72rem',color:'var(--gray)',marginTop:18}}>Keep your screen on while recording — tracking pauses if the phone locks.</div>
+        </div>
+      )}
+
+      {phase === 'recording' && (
+        <div style={{textAlign:'center',width:'100%',maxWidth:380}}>
+          <div style={{fontSize:'0.8rem',color:'var(--gray)',letterSpacing:2,textTransform:'uppercase',marginBottom:8}}>{actType === 'Run' ? '🏃 Running' : '🚶 Walking'}</div>
+          <div style={{...big,fontSize:'4.6rem'}}>{miles.toFixed(2)}</div>
+          <div style={{fontSize:'0.8rem',color:'var(--gray)',marginBottom:22}}>MILES</div>
+          <div className="flex" style={{justifyContent:'center',gap:40,marginBottom:36}}>
+            <div><div style={{...big,fontSize:'1.9rem'}}>{fmtClock(elapsed)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>TIME</div></div>
+            <div><div style={{...big,fontSize:'1.9rem'}}>{fmtPace(elapsed, miles)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>/MILE</div></div>
+          </div>
+          <button onClick={stop}
+            style={{...big,width:150,height:150,borderRadius:'50%',border:'3px solid #e74c3c',cursor:'pointer',fontSize:'1.4rem',background:'transparent',color:'#e74c3c'}}>
+            END
+          </button>
+        </div>
+      )}
+
+      {phase === 'review' && (
+        <div style={{width:'100%',maxWidth:380}}>
+          <div className="modal-title" style={{textAlign:'center'}}>{actType} Complete!</div>
+          <div className="flex" style={{justifyContent:'center',gap:32,margin:'18px 0 24px'}}>
+            <div style={{textAlign:'center'}}><div style={{...big,fontSize:'2.2rem'}}>{miles.toFixed(2)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>MILES</div></div>
+            <div style={{textAlign:'center'}}><div style={{...big,fontSize:'2.2rem'}}>{fmtClock(elapsed)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>TIME</div></div>
+            <div style={{textAlign:'center'}}><div style={{...big,fontSize:'2.2rem'}}>{fmtPace(elapsed, miles)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>/MILE</div></div>
+          </div>
+          {miles < 0.01 ? (
+            <div style={{textAlign:'center'}}>
+              <p style={{color:'var(--gray)',fontSize:'0.85rem',marginBottom:18}}>No distance was recorded — GPS may not have locked. Nothing to save.</p>
+              <button className="btn btn-ghost" style={{width:'100%'}} onClick={onClose}>Close</button>
+            </div>
+          ) : (
+            <div>
+              <div className="form-group"><label>Name</label><input type="text" value={name} onChange={e=>setName(e.target.value)} /></div>
+              <div className="flex gap-12">
+                <button className="btn btn-primary" style={{flex:1}} onClick={save} disabled={saving}>{saving ? <Spinner /> : `Save ${actType}`}</button>
+                <button className="btn btn-ghost" onClick={()=>{ if(confirm('Discard this activity?')) onClose(); }}>Discard</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════
    ACTIVITY LOG
 ══════════════════════════════════════ */
 function ActivityLog({ onToast }) {
@@ -1326,8 +1543,9 @@ function ActivityLog({ onToast }) {
   const [total, setTotal]           = useState(0);
   const [loading, setLoading]       = useState(true);
   const [saving, setSaving]         = useState(false);
-  const [form, setForm] = useState({ name:'Morning Run', distance:'', pace:'', duration:'', notes:'' });
+  const [form, setForm] = useState({ name:'Morning Run', type:'Run', distance:'', pace:'', duration:'', notes:'' });
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const [showRecord, setShowRecord] = useState(false);
   const [selected, setSelected] = useState(null);
   const [gpx, setGpx] = useState(null);          // { route_data, logged_at, elevation_gain, point_count }
   const [importing, setImporting] = useState(false);
@@ -1371,6 +1589,7 @@ function ActivityLog({ onToast }) {
     try {
       await api.post('/activities', {
         name: form.name || 'My Run',
+        type: form.type || 'Run',
         distance: parseFloat(form.distance),
         pace: form.pace,
         duration: form.duration,
@@ -1379,8 +1598,8 @@ function ActivityLog({ onToast }) {
       });
       loadActivities();
       setShowModal(false);
-      onToast('Run logged successfully!');
-      setForm({ name:'Morning Run', distance:'', pace:'', duration:'', notes:'' });
+      onToast(`${form.type || 'Run'} logged successfully!`);
+      setForm({ name:'Morning Run', type:'Run', distance:'', pace:'', duration:'', notes:'' });
       setGpx(null);
     } catch(e) { onToast(`Error: ${e.message}`); }
     finally { setSaving(false); }
@@ -1402,7 +1621,10 @@ function ActivityLog({ onToast }) {
             <div className="page-title">Activity Log</div>
             <div className="page-sub">{total} runs recorded</div>
           </div>
-          <button className="btn btn-primary btn-sm" onClick={()=>{setGpx(null);setShowModal(true);}}>+ Log Run</button>
+          <div className="flex gap-8">
+            <button className="btn btn-primary btn-sm" onClick={()=>setShowRecord(true)}>● Record</button>
+            <button className="btn btn-ghost btn-sm" onClick={()=>{setGpx(null);setShowModal(true);}}>+ Log</button>
+          </div>
         </div>
       </div>
       <div className="page-body">
@@ -1415,7 +1637,7 @@ function ActivityLog({ onToast }) {
             <div key={a.id} className="card" style={{cursor:'pointer'}} onClick={()=>setSelected(selected===a.id?null:a.id)}>
               <div className="flex items-center justify-between mb-12">
                 <div className="flex items-center gap-12">
-                  <div className="activity-icon">🏃</div>
+                  <div className="activity-icon">{a.type === 'Walk' ? '🚶' : '🏃'}</div>
                   <div>
                     <div style={{fontWeight:700,fontSize:'0.92rem'}}>{a.name}</div>
                     <div style={{fontSize:'0.75rem',color:'var(--gray)'}}>{formatDate(a.logged_at)}</div>
@@ -1437,10 +1659,22 @@ function ActivityLog({ onToast }) {
         </div>
       </div>
 
+      {showRecord && (
+        <RecordRun onClose={()=>setShowRecord(false)} onSaved={loadActivities} onToast={onToast} />
+      )}
+
       {showModal && (
         <div className="modal-overlay" onClick={e=>{if(e.target.className==='modal-overlay')setShowModal(false)}}>
           <div className="modal">
-            <div className="modal-title">📍 Log a Run</div>
+            <div className="modal-title">📍 Log an Activity</div>
+            <div className="flex gap-8" style={{marginBottom:14}}>
+              {['Run','Walk'].map(t => (
+                <button key={t} className={`btn btn-sm ${form.type===t?'btn-primary':'btn-ghost'}`} style={{flex:1}}
+                  onClick={()=>{set('type',t); if (form.name==='Morning Run'||form.name==='Morning Walk') set('name',`Morning ${t}`);}}>
+                  {t==='Run'?'🏃 Run':'🚶 Walk'}
+                </button>
+              ))}
+            </div>
             <input ref={fileRef} type="file" accept=".gpx,application/gpx+xml" style={{display:'none'}} onChange={handleGpxFile} />
             <button className="btn btn-ghost btn-sm" style={{width:'100%',marginBottom:14,border:'1px dashed var(--gray)'}} onClick={()=>fileRef.current && fileRef.current.click()} disabled={importing}>
               {importing ? <Spinner /> : (gpx ? '✓ GPS file imported — choose a different file' : '⌚ Import from GPS file (.gpx)')}
