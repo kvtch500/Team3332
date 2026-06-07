@@ -1358,7 +1358,7 @@ function fmtPace(secs, miles) {
 }
 // Speed in mph (walkers see speed; runners see pace)
 function fmtSpeed(secs, miles) {
-  if (!miles || miles < 0.05 || !secs) return '—';
+  if (!miles || miles < 0.01 || !secs) return '—';
   const mph = miles / (secs / 3600);
   if (mph > 30) return '—'; // GPS glitch guard
   return mph.toFixed(1);
@@ -1450,11 +1450,14 @@ function renderShareCard(opts) {
     x.fillText(s.u, cx, SY + 122);
   });
   x.textAlign = 'left';
-  // Footer
+  // Footer — "Team" in white, "3332" in gold, centered
   x.fillStyle = 'rgba(255,255,255,0.08)'; x.fillRect(0, H - 64, W, 64);
-  x.font = "700 32px 'Barlow Condensed', sans-serif"; x.fillStyle = GOLD; x.textAlign = 'center';
-  x.fillText('team3332.com — every runner welcome', W / 2, H - 48);
-  x.textAlign = 'left';
+  x.font = "700 36px 'Barlow Condensed', sans-serif"; x.textAlign = 'left';
+  const f1 = 'Team', f2 = '3332';
+  const fw1 = x.measureText(f1).width, fw2 = x.measureText(f2).width;
+  const fx = (W - (fw1 + fw2)) / 2;
+  x.fillStyle = '#fff'; x.fillText(f1, fx, H - 50);
+  x.fillStyle = GOLD;   x.fillText(f2, fx + fw1, H - 50);
   return new Promise(res => c.toBlob(res, 'image/png'));
 }
 
