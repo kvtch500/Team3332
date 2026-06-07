@@ -1271,7 +1271,7 @@ function Dashboard({ user }) {
                 </div>
                 <div className="activity-stats">
                   <div className="activity-stat-val">{a.distance} mi</div>
-                  <div className="activity-stat-label">{a.pace || '—'}/mi</div>
+                  <div className="activity-stat-label">{a.type==='Walk' ? `${activityStat(a).val} mph` : `${a.pace || '—'}/mi`}</div>
                 </div>
               </div>
             ))}
@@ -1355,6 +1355,130 @@ function fmtPace(secs, miles) {
   if (spm > 3600) return '—:—';
   const m = Math.floor(spm/60), s = Math.round(spm%60);
   return s === 60 ? `${m+1}:00` : `${m}:${String(s).padStart(2,'0')}`;
+}
+// Speed in mph (walkers see speed; runners see pace)
+function fmtSpeed(secs, miles) {
+  if (!miles || miles < 0.05 || !secs) return '—';
+  const mph = miles / (secs / 3600);
+  if (mph > 30) return '—'; // GPS glitch guard
+  return mph.toFixed(1);
+}
+// "HH:MM:SS" | "MM:SS" → seconds
+function durSecs(dur) {
+  if (!dur) return 0;
+  const p = String(dur).trim().split(':').map(Number);
+  if (p.some(isNaN)) return 0;
+  if (p.length === 3) return p[0]*3600 + p[1]*60 + p[2];
+  if (p.length === 2) return p[0]*60 + p[1];
+  return 0;
+}
+// Third stat for a stored activity: Walk → mph, Run → pace
+function activityStat(a) {
+  if (a.type === 'Walk') {
+    const miles = parseFloat(a.distance) || 0;
+    let secs = durSecs(a.duration);
+    if (!secs && a.pace) secs = durSecs(a.pace) * miles;
+    return { val: fmtSpeed(secs, miles), unit: 'mph' };
+  }
+  return { val: a.pace || '—', unit: '/mile' };
+}
+
+/* ── Share card (canvas → native share sheet) ────────────── */
+// opts: { name, type, distance, durationStr, secs, points, dateStr }
+function renderShareCard(opts) {
+  const W = 1080, H = 1080;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  const GOLD = '#D4AF37', DARK = '#0b0f14', GRAY = '#9aa3ad';
+  // Background
+  x.fillStyle = DARK; x.fillRect(0, 0, W, H);
+  const grad = x.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, 'rgba(212,175,55,0.10)'); grad.addColorStop(0.5, 'rgba(212,175,55,0)'); grad.addColorStop(1, 'rgba(107,91,149,0.12)');
+  x.fillStyle = grad; x.fillRect(0, 0, W, H);
+  // Header
+  x.fillStyle = GOLD; x.fillRect(64, 78, 10, 64);
+  x.font = "700 64px 'Barlow Condensed', sans-serif"; x.fillStyle = '#fff'; x.textBaseline = 'top';
+  x.fillText('TEAM 3332', 98, 78);
+  x.font = "400 30px 'Barlow', sans-serif"; x.fillStyle = GRAY;
+  x.fillText(opts.dateStr || '', 98, 148);
+  // Activity name
+  x.font = "700 58px 'Barlow Condensed', sans-serif"; x.fillStyle = '#fff';
+  const icon = opts.type === 'Walk' ? '🚶' : '🏃';
+  x.fillText(`${icon} ${String(opts.name || ('My ' + (opts.type || 'Run'))).slice(0, 32)}`, 64, 230);
+  // Route
+  const pts = Array.isArray(opts.points) && opts.points.length >= 2 ? opts.points : null;
+  const RX = 64, RY = 340, RW = W - 128, RH = 420;
+  if (pts) {
+    const lats = pts.map(p => p[0]), lons = pts.map(p => p[1]);
+    const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+    const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+    const lonScale = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180);
+    const spanLat = Math.max(maxLat - minLat, 1e-5);
+    const spanLon = Math.max((maxLon - minLon) * lonScale, 1e-5);
+    const PAD = 30;
+    const scale = Math.min((RW - PAD * 2) / spanLon, (RH - PAD * 2) / spanLat);
+    const ox = RX + (RW - spanLon * scale) / 2, oy = (RH - spanLat * scale) / 2;
+    const proj = ([lat, lon]) => [ox + (lon - minLon) * lonScale * scale, RY + RH - (oy + (lat - minLat) * scale)];
+    x.strokeStyle = GOLD; x.lineWidth = 7; x.lineCap = 'round'; x.lineJoin = 'round';
+    x.beginPath();
+    pts.forEach((p, i) => { const [px, py] = proj(p); i === 0 ? x.moveTo(px, py) : x.lineTo(px, py); });
+    x.stroke();
+    const [sx, sy] = proj(pts[0]), [ex, ey] = proj(pts[pts.length - 1]);
+    x.fillStyle = '#4caf50'; x.beginPath(); x.arc(sx, sy, 13, 0, 7); x.fill();
+    x.fillStyle = '#e74c3c'; x.beginPath(); x.arc(ex, ey, 13, 0, 7); x.fill();
+  } else {
+    x.font = "700 200px 'Barlow Condensed', sans-serif"; x.fillStyle = 'rgba(212,175,55,0.16)';
+    x.textAlign = 'center'; x.fillText(opts.type === 'Walk' ? '🚶' : '🏃', W / 2, RY + 90); x.textAlign = 'left';
+  }
+  // Stats row
+  const miles = parseFloat(opts.distance) || 0;
+  const third = opts.type === 'Walk'
+    ? { v: fmtSpeed(opts.secs, miles), u: 'MPH' }
+    : { v: opts.secs ? fmtPace(opts.secs, miles) : '—:—', u: '/MILE' };
+  const stats = [
+    { v: miles.toFixed(2), u: 'MILES' },
+    { v: opts.durationStr || fmtClock(opts.secs || 0), u: 'TIME' },
+    third,
+  ];
+  const SY = 830;
+  stats.forEach((s, i) => {
+    const cx = W / 6 + (i * W) / 3;
+    x.textAlign = 'center';
+    x.font = "700 110px 'Barlow Condensed', sans-serif"; x.fillStyle = '#fff';
+    x.fillText(String(s.v), cx, SY);
+    x.font = "400 30px 'Barlow', sans-serif"; x.fillStyle = GRAY;
+    x.fillText(s.u, cx, SY + 122);
+  });
+  x.textAlign = 'left';
+  // Footer
+  x.fillStyle = 'rgba(255,255,255,0.08)'; x.fillRect(0, H - 64, W, 64);
+  x.font = "700 32px 'Barlow Condensed', sans-serif"; x.fillStyle = GOLD; x.textAlign = 'center';
+  x.fillText('team3332.com — every runner welcome', W / 2, H - 48);
+  x.textAlign = 'left';
+  return new Promise(res => c.toBlob(res, 'image/png'));
+}
+
+async function shareActivity(opts, onToast) {
+  try {
+    try { await document.fonts.ready; } catch (e) {}
+    const miles = parseFloat(opts.distance) || 0;
+    const verb = opts.type === 'Walk' ? 'walked' : 'ran';
+    const text = `I just ${verb} ${miles.toFixed(2)} mi with TEAM 3332 ${opts.type === 'Walk' ? '🚶' : '🏃'} team3332.com`;
+    const blob = await renderShareCard(opts);
+    const file = blob ? new File([blob], 'team3332.png', { type: 'image/png' }) : null;
+    if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], text, title: 'TEAM 3332' });
+    } else if (navigator.share) {
+      await navigator.share({ text, url: 'https://team3332.com', title: 'TEAM 3332' });
+    } else if (blob) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'team3332.png'; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      onToast && onToast('Share card downloaded');
+    }
+  } catch (e) {
+    if (e && e.name !== 'AbortError') onToast && onToast('Could not share');
+  }
 }
 
 function RecordRun({ onClose, onSaved, onToast }) {
@@ -1497,7 +1621,7 @@ function RecordRun({ onClose, onSaved, onToast }) {
           <div style={{fontSize:'0.8rem',color:'var(--gray)',marginBottom:22}}>MILES</div>
           <div className="flex" style={{justifyContent:'center',gap:40,marginBottom:36}}>
             <div><div style={{...big,fontSize:'1.9rem'}}>{fmtClock(elapsed)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>TIME</div></div>
-            <div><div style={{...big,fontSize:'1.9rem'}}>{fmtPace(elapsed, miles)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>/MILE</div></div>
+            <div><div style={{...big,fontSize:'1.9rem'}}>{actType==='Walk' ? fmtSpeed(elapsed, miles) : fmtPace(elapsed, miles)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>{actType==='Walk' ? 'MPH' : '/MILE'}</div></div>
           </div>
           <button onClick={stop}
             style={{...big,width:150,height:150,borderRadius:'50%',border:'3px solid #e74c3c',cursor:'pointer',fontSize:'1.4rem',background:'transparent',color:'#e74c3c'}}>
@@ -1512,7 +1636,7 @@ function RecordRun({ onClose, onSaved, onToast }) {
           <div className="flex" style={{justifyContent:'center',gap:32,margin:'18px 0 24px'}}>
             <div style={{textAlign:'center'}}><div style={{...big,fontSize:'2.2rem'}}>{miles.toFixed(2)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>MILES</div></div>
             <div style={{textAlign:'center'}}><div style={{...big,fontSize:'2.2rem'}}>{fmtClock(elapsed)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>TIME</div></div>
-            <div style={{textAlign:'center'}}><div style={{...big,fontSize:'2.2rem'}}>{fmtPace(elapsed, miles)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>/MILE</div></div>
+            <div style={{textAlign:'center'}}><div style={{...big,fontSize:'2.2rem'}}>{actType==='Walk' ? fmtSpeed(elapsed, miles) : fmtPace(elapsed, miles)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>{actType==='Walk' ? 'MPH' : '/MILE'}</div></div>
           </div>
           {miles < 0.01 ? (
             <div style={{textAlign:'center'}}>
@@ -1526,6 +1650,12 @@ function RecordRun({ onClose, onSaved, onToast }) {
                 <button className="btn btn-primary" style={{flex:1}} onClick={save} disabled={saving}>{saving ? <Spinner /> : `Save ${actType}`}</button>
                 <button className="btn btn-ghost" onClick={()=>{ if(confirm('Discard this activity?')) onClose(); }}>Discard</button>
               </div>
+              <button className="btn btn-ghost" style={{width:'100%',marginTop:10}} onClick={()=>shareActivity({
+                name, type: actType, distance: miles,
+                durationStr: fmtClock(elapsed), secs: elapsed,
+                points: stRef.current.points,
+                dateStr: startRef.current ? startRef.current.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) : '',
+              }, onToast)}>📤 Share</button>
             </div>
           )}
         </div>
@@ -1645,9 +1775,15 @@ function ActivityLog({ onToast }) {
                 </div>
                 <div className="flex gap-12 items-center" style={{textAlign:'right'}}>
                   <div><div style={{fontFamily:'Barlow Condensed',fontWeight:700,fontSize:'1.1rem'}}>{a.distance}</div><div style={{fontSize:'0.7rem',color:'var(--gray)'}}>miles</div></div>
-                  <div><div style={{fontFamily:'Barlow Condensed',fontWeight:700,fontSize:'1.1rem'}}>{a.pace||'—'}</div><div style={{fontSize:'0.7rem',color:'var(--gray)'}}>/mile</div></div>
+                  <div><div style={{fontFamily:'Barlow Condensed',fontWeight:700,fontSize:'1.1rem'}}>{activityStat(a).val}</div><div style={{fontSize:'0.7rem',color:'var(--gray)'}}>{activityStat(a).unit}</div></div>
                   <div><div style={{fontFamily:'Barlow Condensed',fontWeight:700,fontSize:'1.1rem'}}>{a.duration||'—'}</div><div style={{fontSize:'0.7rem',color:'var(--gray)'}}>time</div></div>
                   <div><div style={{fontFamily:'Barlow Condensed',fontWeight:700,fontSize:'1.1rem'}}>{a.calories||'—'}</div><div style={{fontSize:'0.7rem',color:'var(--gray)'}}>cal</div></div>
+                  <button className="btn btn-xs btn-ghost" title="Share" onClick={e=>{e.stopPropagation(); shareActivity({
+                    name: a.name, type: a.type, distance: a.distance,
+                    durationStr: a.duration || null, secs: durSecs(a.duration) || (a.pace ? durSecs(a.pace) * (parseFloat(a.distance)||0) : 0),
+                    points: (()=>{ try { const p = a.route_data ? (typeof a.route_data==='string' ? JSON.parse(a.route_data) : a.route_data) : null; return p && Array.isArray(p.points) ? p.points : null; } catch(err){ return null; } })(),
+                    dateStr: formatDate(a.logged_at),
+                  }, onToast);}} style={{marginLeft:4}}>📤</button>
                   <button className="btn btn-xs btn-ghost" onClick={e=>handleDelete(a.id,e)} style={{marginLeft:4}}>🗑</button>
                 </div>
               </div>
