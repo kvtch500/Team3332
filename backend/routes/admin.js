@@ -24,6 +24,7 @@ router.get('/stats', requireAdmin, (req, res) => {
   const totalRuns   = db.prepare(`SELECT COUNT(*) as total FROM activities`).get();
   const challenges  = db.prepare(`SELECT COUNT(*) as total FROM challenges`).get();
   const newThisWeek = db.prepare(`SELECT COUNT(*) as total FROM users WHERE joined_at >= date('now','-7 days')`).get();
+  const pendingClubs = db.prepare(`SELECT COUNT(*) as total FROM clubs WHERE status = 'pending'`).get();
 
   res.json({
     total_members:   members.total,
@@ -34,7 +35,50 @@ router.get('/stats', requireAdmin, (req, res) => {
     total_runs:      totalRuns.total,
     active_challenges: challenges.total,
     new_this_week:   newThisWeek.total,
+    pending_clubs:   pendingClubs.total,
   });
+});
+
+// GET /api/admin/clubs — All clubs with member counts
+router.get('/clubs', requireAdmin, (req, res) => {
+  const db = getDb();
+  const clubs = db.prepare(`
+    SELECT c.id, c.name, c.status, c.created_at, COUNT(u.id) AS member_count
+    FROM clubs c
+    LEFT JOIN users u ON u.club_id = c.id AND u.is_active = 1
+    GROUP BY c.id
+    ORDER BY CASE c.status WHEN 'pending' THEN 0 ELSE 1 END, c.created_at DESC
+  `).all();
+  res.json({ clubs });
+});
+
+// PATCH /api/admin/clubs/:id — Verify a club (or rename it)
+router.patch('/clubs/:id', requireAdmin, (req, res) => {
+  const db = getDb();
+  const { status, name } = req.body;
+
+  const club = db.prepare('SELECT * FROM clubs WHERE id = ?').get(req.params.id);
+  if (!club) return res.status(404).json({ error: 'Club not found' });
+
+  if (status && !['pending', 'verified'].includes(status))
+    return res.status(400).json({ error: 'status must be pending or verified' });
+
+  db.prepare(`UPDATE clubs SET status = COALESCE(?, status), name = COALESCE(?, name) WHERE id = ?`)
+    .run(status || null, name ? name.trim() : null, req.params.id);
+
+  res.json({ club: db.prepare('SELECT * FROM clubs WHERE id = ?').get(req.params.id) });
+});
+
+// DELETE /api/admin/clubs/:id — Reject/remove a club (members are unlinked)
+router.delete('/clubs/:id', requireAdmin, (req, res) => {
+  const db = getDb();
+  const club = db.prepare('SELECT * FROM clubs WHERE id = ?').get(req.params.id);
+  if (!club) return res.status(404).json({ error: 'Club not found' });
+
+  db.prepare('UPDATE users SET club_id = NULL WHERE club_id = ?').run(club.id);
+  db.prepare('DELETE FROM clubs WHERE id = ?').run(club.id);
+
+  res.json({ message: `Club "${club.name}" removed` });
 });
 
 // GET /api/admin/members — All members with filters

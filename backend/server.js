@@ -33,6 +33,7 @@ app.use('/api/auth',        require('./routes/auth'));
 app.use('/api/users',       require('./routes/users'));
 app.use('/api/activities',  require('./routes/activities'));
 app.use('/api/leaderboard', require('./routes/leaderboard'));
+app.use('/api/clubs',       require('./routes/clubs'));
 app.use('/api/challenges',  require('./routes/challenges'));
 app.use('/api/captain',     require('./routes/captain'));
 app.use('/api/admin',       require('./routes/admin'));

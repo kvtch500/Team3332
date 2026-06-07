@@ -26,11 +26,14 @@ router.get('/', requireAuth, (req, res) => {
       u.tier,
       u.pace_group,
       u.is_captain,
+      CASE WHEN c.status = 'verified' THEN c.id   END AS club_id,
+      CASE WHEN c.status = 'verified' THEN c.name END AS club_name,
       ROUND(SUM(a.distance), 1) AS total_miles,
       COUNT(a.id)               AS run_count,
       AVG(a.distance)           AS avg_distance
     FROM users u
     JOIN activities a ON a.user_id = u.id
+    LEFT JOIN clubs c ON c.id = u.club_id
     WHERE u.is_active = 1
       ${dateFilter}
       ${paceFilter}

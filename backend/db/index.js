@@ -17,11 +17,16 @@ function getDb() {
     // Run schema (all CREATE IF NOT EXISTS — safe to run every boot)
     db.exec(schema);
     // Lightweight auto-migrations for existing databases (safe to run every boot)
-    try {
-      db.exec(`ALTER TABLE challenges ADD COLUMN sport TEXT NOT NULL DEFAULT 'Run' CHECK(sport IN ('Run', 'Walk', 'Any'))`);
-    } catch (e) {
-      if (!/duplicate column/i.test(e.message)) throw e;
-    }
+    const addColumn = (sql) => {
+      try { db.exec(sql); }
+      catch (e) { if (!/duplicate column/i.test(e.message)) throw e; }
+    };
+    addColumn(`ALTER TABLE challenges ADD COLUMN sport TEXT NOT NULL DEFAULT 'Run' CHECK(sport IN ('Run', 'Walk', 'Any'))`);
+    // June 2026: member location + clubs
+    addColumn(`ALTER TABLE users ADD COLUMN country TEXT`);
+    addColumn(`ALTER TABLE users ADD COLUMN state TEXT`);
+    addColumn(`ALTER TABLE users ADD COLUMN city TEXT`);
+    addColumn(`ALTER TABLE users ADD COLUMN club_id INTEGER REFERENCES clubs(id) ON DELETE SET NULL`);
   }
   return db;
 }

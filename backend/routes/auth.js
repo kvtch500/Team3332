@@ -21,9 +21,18 @@ function safeUser(user) {
   return safe;
 }
 
+// User row + club name/status (clubs only display publicly once verified)
+function getUserWithClub(db, id) {
+  return db.prepare(`
+    SELECT u.*, c.name AS club_name, c.status AS club_status
+    FROM users u LEFT JOIN clubs c ON c.id = u.club_id
+    WHERE u.id = ?
+  `).get(id);
+}
+
 // POST /api/auth/register
 router.post('/register', (req, res) => {
-  const { name, email, password, tier = 'Standard', pace_group = 'C' } = req.body;
+  const { name, email, password, tier = 'Standard', pace_group = 'C', country, state, city } = req.body;
 
   if (!name || !email || !password)
     return res.status(400).json({ error: 'name, email, and password are required' });
@@ -37,11 +46,11 @@ router.post('/register', (req, res) => {
 
   const hash = bcrypt.hashSync(password, 10);
   const info = db.prepare(`
-    INSERT INTO users (name, email, password, tier, pace_group)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(name, email, hash, tier, pace_group);
+    INSERT INTO users (name, email, password, tier, pace_group, country, state, city)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(name, email, hash, tier, pace_group, country || null, state || null, city || null);
 
-  const user  = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+  const user  = getUserWithClub(db, info.lastInsertRowid);
   const token = signToken(user);
 
   // Fire welcome email (non-blocking — never fails the signup)
@@ -65,29 +74,30 @@ router.post('/login', (req, res) => {
     return res.status(403).json({ error: 'Account is deactivated' });
 
   const token = signToken(user);
-  res.json({ token, user: safeUser(user) });
+  res.json({ token, user: safeUser(getUserWithClub(db, user.id)) });
 });
 
 // GET /api/auth/me
 router.get('/me', requireAuth, (req, res) => {
   const db   = getDb();
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  const user = getUserWithClub(db, req.user.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ user: safeUser(user) });
 });
 
 // PATCH /api/auth/me — Update profile
 router.patch('/me', requireAuth, (req, res) => {
-  const { name, bio, location, pace_group } = req.body;
+  const { name, bio, location, pace_group, country, state, city } = req.body;
   const db = getDb();
 
   db.prepare(`
     UPDATE users SET name = COALESCE(?, name), bio = COALESCE(?, bio),
     location = COALESCE(?, location), pace_group = COALESCE(?, pace_group),
+    country = COALESCE(?, country), state = COALESCE(?, state), city = COALESCE(?, city),
     updated_at = datetime('now') WHERE id = ?
-  `).run(name, bio, location, pace_group, req.user.id);
+  `).run(name, bio, location, pace_group, country, state, city, req.user.id);
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  const user = getUserWithClub(db, req.user.id);
   res.json({ user: safeUser(user) });
 });
 

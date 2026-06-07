@@ -906,6 +906,174 @@ function Toast({ message, onClose }) {
   return <div className="toast">✅ {message}</div>;
 }
 
+/* ══════════════════════════════════════
+   LOCATION & CLUBS (shared)
+══════════════════════════════════════ */
+const US_STATES = ['Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','District of Columbia','Florida','Georgia','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Rhode Island','South Carolina','South Dakota','Tennessee','Texas','Utah','Vermont','Virginia','Washington','West Virginia','Wisconsin','Wyoming'];
+
+// Country list generated from the browser's own region database — works worldwide
+const COUNTRIES = (() => {
+  const out = [];
+  try {
+    const dn = new Intl.DisplayNames(['en'], { type: 'region' });
+    for (let i = 65; i <= 90; i++) for (let j = 65; j <= 90; j++) {
+      const code = String.fromCharCode(i) + String.fromCharCode(j);
+      try { const name = dn.of(code); if (name && name !== code) out.push(name); } catch (e) {}
+    }
+    out.sort();
+  } catch (e) {}
+  return ['United States'].concat(out.filter(n => n !== 'United States'));
+})();
+
+function fmtLocation(u) {
+  return [u.city, u.state, u.country].filter(Boolean).join(', ');
+}
+
+function locationComplete(v) {
+  if (!v.country || !v.city.trim()) return false;
+  if (v.country === 'United States' && !v.state) return false;
+  return true;
+}
+
+function LocationFields({ value, onChange }) {
+  const isUS = value.country === 'United States';
+  const set = (k, v) => onChange(k === 'country' ? { ...value, country: v, state: '' } : { ...value, [k]: v });
+  return (
+    <div>
+      <div className="form-group">
+        <label>Country</label>
+        <select value={value.country} onChange={e=>set('country', e.target.value)}>
+          <option value="">Select your country…</option>
+          {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+      <div className="form-group">
+        <label>{isUS ? 'State' : 'State / Province / Region (optional)'}</label>
+        {isUS ? (
+          <select value={value.state} onChange={e=>set('state', e.target.value)}>
+            <option value="">Select your state…</option>
+            {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        ) : (
+          <input type="text" placeholder="e.g. Ontario, Bavaria…" value={value.state} onChange={e=>set('state', e.target.value)} />
+        )}
+      </div>
+      <div className="form-group">
+        <label>City</label>
+        <input type="text" placeholder="Your city" value={value.city} onChange={e=>set('city', e.target.value)} />
+      </div>
+    </div>
+  );
+}
+
+function ClubModal({ clubId, onClose }) {
+  const [data, setData]   = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get(`/clubs/${clubId}`).then(setData).catch(e => setError(e.message));
+  }, [clubId]);
+
+  return (
+    <div className="modal-overlay" onClick={e=>{if(e.target.className==='modal-overlay')onClose()}}>
+      <div className="modal">
+        {!data && !error && <div style={{textAlign:'center',padding:30}}><Spinner size={26} /></div>}
+        {error && <div style={{textAlign:'center',padding:20,color:'var(--gray)',fontSize:'0.85rem'}}>{error}</div>}
+        {data && (
+          <div>
+            <div className="modal-title">🏃 {data.club.name}</div>
+            <div style={{fontSize:'0.8rem',color:'var(--gray)',marginBottom:16}}>
+              {data.member_count} member{data.member_count===1?'':'s'} on TEAM 3332
+            </div>
+            <div style={{maxHeight:'50vh',overflowY:'auto'}}>
+              {data.members.map(m => (
+                <div key={m.id} className="lb-row">
+                  <div className="avatar" style={{width:34,height:34,fontSize:'0.82rem'}}>{m.name[0]}</div>
+                  <div style={{flex:1}}>
+                    <div className="lb-name">{m.name}{m.is_captain ? <span style={{fontSize:'0.7rem',marginLeft:6}}>🎖️</span> : null}</div>
+                    <div className="lb-sub">{fmtLocation(m) || `Group ${m.pace_group}`}</div>
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    <div className="lb-val">{m.total_miles != null ? m.total_miles : 0} mi</div>
+                    <div style={{fontSize:'0.72rem',color:'var(--gray)'}}>{m.total_runs} activities</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button className="btn btn-ghost" style={{width:'100%',marginTop:14}} onClick={onClose}>Close</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Clickable club name — tap to open the member roster
+function ClubName({ id, name, style }) {
+  const [open, setOpen] = useState(false);
+  if (!id || !name) return null;
+  return (
+    <React.Fragment>
+      <span onClick={e=>{e.stopPropagation(); setOpen(true);}} style={Object.assign({color:'var(--blue)',cursor:'pointer'}, style || {})}>🏃 {name}</span>
+      {open && <ClubModal clubId={id} onClose={()=>setOpen(false)} />}
+    </React.Fragment>
+  );
+}
+
+// Search existing clubs / submit a new one
+function ClubPicker({ onJoined }) {
+  const [query, setQuery]         = useState('');
+  const [results, setResults]     = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [busy, setBusy]           = useState(false);
+  const timer = useRef(null);
+
+  useEffect(() => {
+    if (!query.trim()) { setResults([]); return; }
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      setSearching(true);
+      api.get(`/clubs?search=${encodeURIComponent(query.trim())}`)
+        .then(d => setResults(d.clubs || []))
+        .catch(() => setResults([]))
+        .finally(() => setSearching(false));
+    }, 300);
+    return () => clearTimeout(timer.current);
+  }, [query]);
+
+  const join = async (name) => {
+    setBusy(true);
+    try { onJoined(await api.post('/clubs/join', { name })); }
+    catch(e) { alert(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const exactMatch = results.some(c => c.name.toLowerCase() === query.trim().toLowerCase());
+
+  return (
+    <div>
+      <div className="form-group" style={{marginBottom:10}}>
+        <input type="text" placeholder="Search or type your club's name…" value={query} onChange={e=>setQuery(e.target.value)} />
+      </div>
+      {searching && <div style={{textAlign:'center',padding:8}}><Spinner /></div>}
+      {results.map(c => (
+        <button key={c.id} className="btn btn-secondary" style={{width:'100%',justifyContent:'space-between',marginBottom:8}} disabled={busy} onClick={()=>join(c.name)}>
+          <span>🏃 {c.name}</span>
+          <span style={{fontSize:'0.75rem',color:'var(--gray)'}}>{c.member_count} member{c.member_count===1?'':'s'}</span>
+        </button>
+      ))}
+      {query.trim().length > 1 && !exactMatch && !searching && (
+        <React.Fragment>
+          <button className="btn btn-ghost" style={{width:'100%',border:'1px dashed var(--gray)'}} disabled={busy} onClick={()=>join(query.trim())}>
+            + Add "{query.trim()}" as a new club
+          </button>
+          <div style={{fontSize:'0.72rem',color:'var(--gray)',marginTop:8,textAlign:'center'}}>New clubs appear publicly once verified by an admin.</div>
+        </React.Fragment>
+      )}
+    </div>
+  );
+}
+
 function SVGMap({ runId, routeData }) {
   // Real route from GPX import (route_data = {source:'gpx', points:[[lat,lon],...]})
   let real = null;
@@ -1093,6 +1261,9 @@ function Onboarding({ user, onComplete }) {
     weekly_miles: '', race_goal: '', experience: '', pace_group: user.pace_group || 'C'
   });
   const [saving, setSaving] = useState(false);
+  const [loc, setLoc] = useState({ country: user.country || '', state: user.state || '', city: user.city || '' });
+  const [me, setMe] = useState(user);
+  const TOTAL_STEPS = 6;
 
   const steps = [
     {
@@ -1121,28 +1292,41 @@ function Onboarding({ user, onComplete }) {
     },
   ];
 
-  const current = steps[step];
+  // Steps 0–3 are the option questions above; 4 = location (required); 5 = club (optional)
+  const current = step < steps.length ? steps[step] : (
+    step === 4
+      ? { question: 'Where are you running from?', emoji: '🌍' }
+      : { question: 'Are you part of a run club?', emoji: '🏃' }
+  );
 
-  const select = async (val) => {
+  const select = (val) => {
     const key = current.key;
     // For pace_group, extract the letter
     const stored = key === 'pace_group' ? val[0] : val;
-    const next = { ...answers, [key]: stored };
-    setAnswers(next);
+    setAnswers({ ...answers, [key]: stored });
+    setStep(s => s + 1);
+  };
 
-    if (step < steps.length - 1) {
-      setStep(s => s + 1);
-    } else {
-      // Save and complete
-      setSaving(true);
-      try {
-        await api.patch('/auth/me', {
-          pace_group: next.pace_group,
-          bio: `Goal: ${next.race_goal} · ${next.weekly_miles}/week · Running for ${next.experience}`
-        });
-      } catch(e) { /* non-blocking */ }
-      finally { setSaving(false); onComplete(); }
-    }
+  // Step 4 → save profile (pace, bio, location), then move to club step
+  const saveLocation = async () => {
+    setSaving(true);
+    try {
+      const d = await api.patch('/auth/me', {
+        pace_group: answers.pace_group,
+        country: loc.country,
+        state: loc.state.trim() || null,
+        city: loc.city.trim(),
+        bio: `Goal: ${answers.race_goal} · ${answers.weekly_miles}/week · Running for ${answers.experience}`
+      });
+      if (d.user) setMe(d.user);
+    } catch(e) { /* non-blocking */ }
+    finally { setSaving(false); setStep(5); }
+  };
+
+  // Step 5 → joined a club (refresh user so club shows immediately)
+  const clubJoined = async (d) => {
+    try { const r = await api.get('/auth/me'); onComplete(r.user, d.message); }
+    catch(e) { onComplete(me, d.message); }
   };
 
   return (
@@ -1162,7 +1346,7 @@ function Onboarding({ user, onComplete }) {
 
         {/* Progress dots */}
         <div style={{display:'flex',justifyContent:'center',gap:8,marginBottom:36}}>
-          {steps.map((_, i) => (
+          {Array.from({length: TOTAL_STEPS}).map((_, i) => (
             <div key={i} style={{
               width: i === step ? 24 : 8, height:8, borderRadius:100,
               background: i < step ? 'var(--blue)' : i === step ? 'var(--blue)' : 'var(--border)',
@@ -1179,23 +1363,43 @@ function Onboarding({ user, onComplete }) {
             textTransform:'uppercase',textAlign:'center',marginBottom:28,lineHeight:1.2
           }}>{current.question}</div>
 
-          <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {current.options.map(opt => (
-              <button
-                key={opt}
-                className="btn btn-secondary"
-                style={{justifyContent:'flex-start', padding:'14px 18px', fontSize:'0.92rem'}}
-                onClick={() => select(opt)}
-                disabled={saving}
-              >
-                {opt}
+          {step < steps.length && (
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {current.options.map(opt => (
+                <button
+                  key={opt}
+                  className="btn btn-secondary"
+                  style={{justifyContent:'flex-start', padding:'14px 18px', fontSize:'0.92rem'}}
+                  onClick={() => select(opt)}
+                  disabled={saving}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {step === 4 && (
+            <div>
+              <LocationFields value={loc} onChange={setLoc} />
+              <button className="btn btn-primary" style={{width:'100%',marginTop:4}} disabled={saving || !locationComplete(loc)} onClick={saveLocation}>
+                {saving ? <Spinner /> : 'Continue →'}
               </button>
-            ))}
-          </div>
+            </div>
+          )}
+
+          {step === 5 && (
+            <div>
+              <ClubPicker onJoined={clubJoined} />
+              <button className="btn btn-ghost" style={{width:'100%',marginTop:12}} onClick={()=>onComplete(me)}>
+                No club — skip for now
+              </button>
+            </div>
+          )}
         </div>
 
         <div style={{textAlign:'center',marginTop:20,color:'var(--gray)',fontSize:'0.78rem'}}>
-          Step {step + 1} of {steps.length}
+          Step {step + 1} of {TOTAL_STEPS}
         </div>
       </div>
     </div>
@@ -1900,6 +2104,7 @@ function Leaderboard() {
                 <div className="avatar" style={{margin:'0 auto 8px',width:48,height:48,fontSize:'1.1rem',background:i===0?'#FFD700':i===1?'#C0C0C0':'#CD7F32',color:'var(--black)'}}>{m.name[0]}</div>
                 <div style={{fontWeight:700,fontSize:'0.9rem'}}>{m.name}{m.is_you&&<span style={{color:'var(--blue)',fontSize:'0.72rem',marginLeft:4}}>you</span>}</div>
                 <div style={{fontSize:'0.75rem',color:'var(--gray)',marginBottom:8}}>Group {m.pace_group} · {m.tier}</div>
+                {m.club_id && <div style={{fontSize:'0.72rem',marginBottom:6}}><ClubName id={m.club_id} name={m.club_name} /></div>}
                 <div style={{fontFamily:'Barlow Condensed',fontWeight:800,fontSize:'1.4rem',color:'var(--blue)'}}>{m.total_miles} mi</div>
               </div>
             ))}
@@ -1915,7 +2120,7 @@ function Leaderboard() {
                 <div className="avatar" style={{width:34,height:34,fontSize:'0.82rem'}}>{m.name[0]}</div>
                 <div style={{flex:1}}>
                   <div className="lb-name">{m.name}{m.is_you&&<span style={{fontSize:'0.7rem',color:'var(--blue)',marginLeft:6}}>you</span>}</div>
-                  <div className="lb-sub">Group {m.pace_group} · {m.tier}</div>
+                  <div className="lb-sub">Group {m.pace_group} · {m.tier}{m.club_id && <span> · <ClubName id={m.club_id} name={m.club_name} style={{fontSize:'0.72rem'}} /></span>}</div>
                 </div>
                 <div style={{textAlign:'right'}}>
                   <div className="lb-val">{m.total_miles} mi</div>
@@ -2228,10 +2433,34 @@ function CheckoutButton({ tier, label }) {
   );
 }
 
-function Profile({ user, onLogout }) {
+function Profile({ user, onLogout, onToast, onUserUpdate }) {
   const [stats, setStats]   = useState(null);
   const [badges, setBadges] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loc, setLoc] = useState({ country: user.country || '', state: user.state || '', city: user.city || '' });
+  const [savingLoc, setSavingLoc] = useState(false);
+  const [clubBusy, setClubBusy]   = useState(false);
+
+  const refreshUser = async (msg) => {
+    try { const r = await api.get('/auth/me'); onUserUpdate(r.user); } catch(e) {}
+    if (msg) onToast(msg);
+  };
+
+  const saveLoc = async () => {
+    setSavingLoc(true);
+    try {
+      await api.patch('/auth/me', { country: loc.country, state: loc.state.trim() || null, city: loc.city.trim() });
+      await refreshUser('Location updated.');
+    } catch(e) { alert(e.message); }
+    finally { setSavingLoc(false); }
+  };
+
+  const leaveClub = async () => {
+    setClubBusy(true);
+    try { await api.post('/clubs/leave'); await refreshUser('You left your club.'); }
+    catch(e) { alert(e.message); }
+    finally { setClubBusy(false); }
+  };
 
   useEffect(() => {
     Promise.all([
@@ -2263,8 +2492,10 @@ function Profile({ user, onLogout }) {
               <span className={`badge ${user.tier==='Elite'?'badge-orange':'badge-blue'}`}>{user.tier} Member</span>
               {user.is_captain && <span className="badge badge-orange">🎖️ Captain</span>}
               <span className="pace-group-pill">Pace Group {user.pace_group}</span>
+              {user.club_name && user.club_status === 'verified' && <ClubName id={user.club_id} name={user.club_name} style={{fontSize:'0.78rem'}} />}
             </div>
             <div style={{fontSize:'0.82rem',color:'var(--gray)',marginTop:8}}>{user.email}</div>
+            {fmtLocation(user) && <div style={{fontSize:'0.82rem',color:'var(--gray)',marginTop:4}}>📍 {fmtLocation(user)}</div>}
           </div>
         </div>
 
@@ -2315,6 +2546,35 @@ function Profile({ user, onLogout }) {
               <div style={{fontSize:'0.75rem',color:'var(--gray)',textAlign:'center',marginTop:8}}>
                 Payments secured by Stripe 🔒
               </div>
+            </div>
+
+            <div className="card">
+              <div className="card-title">🏃 Run Club</div>
+              {user.club_name ? (
+                <div>
+                  <div className="flex justify-between" style={{alignItems:'center',marginBottom:8}}>
+                    {user.club_status === 'verified'
+                      ? <ClubName id={user.club_id} name={user.club_name} style={{fontSize:'0.95rem',fontWeight:600}} />
+                      : <span style={{fontWeight:600,fontSize:'0.95rem'}}>🏃 {user.club_name}</span>}
+                    <button className="btn btn-ghost btn-sm" onClick={leaveClub} disabled={clubBusy}>{clubBusy ? <Spinner /> : 'Leave'}</button>
+                  </div>
+                  <div style={{fontSize:'0.75rem',color:'var(--gray)'}}>
+                    {user.club_status === 'verified'
+                      ? 'Tap your club name to see all members.'
+                      : 'Pending admin verification — your club will appear publicly once approved.'}
+                  </div>
+                </div>
+              ) : (
+                <ClubPicker onJoined={(d)=>refreshUser(d.message)} />
+              )}
+            </div>
+
+            <div className="card">
+              <div className="card-title">📍 Location</div>
+              <LocationFields value={loc} onChange={setLoc} />
+              <button className="btn btn-primary btn-sm" style={{width:'100%'}} disabled={savingLoc || !locationComplete(loc)} onClick={saveLoc}>
+                {savingLoc ? <Spinner /> : 'Save Location'}
+              </button>
             </div>
 
             <div className="card">
@@ -2400,13 +2660,13 @@ function App() {
       case 'leaderboard':return <Leaderboard />;
       case 'challenges': return <Challenges onToast={showToast} />;
       case 'captain':    return <CaptainPanel user={user} onToast={showToast} />;
-      case 'profile':    return <Profile user={user} onLogout={()=>{ api.setToken(null); setUser(null); }} />;
+      case 'profile':    return <Profile user={user} onLogout={()=>{ api.setToken(null); setUser(null); }} onToast={showToast} onUserUpdate={u=>setUser(u)} />;
       default:           return <Dashboard user={user} />;
     }
   };
 
   if (!user) return <AuthPage onLogin={(u, isNew) => { setUser(u); if (isNew) setShowOnboarding(true); }} />;
-  if (showOnboarding) return <Onboarding user={user} onComplete={() => setShowOnboarding(false)} />;
+  if (showOnboarding) return <Onboarding user={user} onComplete={(u, msg) => { if (u) setUser(u); setShowOnboarding(false); if (msg) showToast(msg); }} />;
 
   // Bottom nav items (5 max for mobile)
   const bottomNavItems = [

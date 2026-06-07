@@ -4,6 +4,14 @@ const schema = `
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
 
+  -- ── CLUBS ──────────────────────────────────────────
+  CREATE TABLE IF NOT EXISTS clubs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    status      TEXT    NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'verified')),
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
   -- ── USERS ──────────────────────────────────────────
   CREATE TABLE IF NOT EXISTS users (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -16,6 +24,10 @@ const schema = `
     is_active   INTEGER NOT NULL DEFAULT 1,
     bio                     TEXT,
     location                TEXT,
+    country                 TEXT,
+    state                   TEXT,
+    city                    TEXT,
+    club_id                 INTEGER REFERENCES clubs(id) ON DELETE SET NULL,
     avatar_url              TEXT,
     subscription_status     TEXT    NOT NULL DEFAULT 'trial' CHECK(subscription_status IN ('trial', 'active', 'expired', 'cancelled')),
     subscription_expires_at TEXT,
@@ -127,6 +139,7 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_challenge_members_challenge ON challenge_members(challenge_id);
   CREATE INDEX IF NOT EXISTS idx_challenge_members_user ON challenge_members(user_id);
   CREATE INDEX IF NOT EXISTS idx_group_runs_captain ON group_runs(captain_id);
+  CREATE INDEX IF NOT EXISTS idx_users_club ON users(club_id);
 `;
 
 module.exports = schema;

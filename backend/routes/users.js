@@ -21,10 +21,14 @@ router.get('/', requireAuth, (req, res) => {
 
   const users = db.prepare(`
     SELECT u.id, u.name, u.tier, u.pace_group, u.is_captain, u.bio, u.location, u.joined_at,
+           u.country, u.state, u.city,
+           CASE WHEN c.status = 'verified' THEN c.id   END AS club_id,
+           CASE WHEN c.status = 'verified' THEN c.name END AS club_name,
            ROUND(SUM(a.distance), 1) AS total_miles,
            COUNT(a.id)               AS total_runs
     FROM users u
     LEFT JOIN activities a ON a.user_id = u.id
+    LEFT JOIN clubs c ON c.id = u.club_id
     ${where}
     GROUP BY u.id
     ORDER BY total_miles DESC
@@ -41,10 +45,14 @@ router.get('/:id', requireAuth, (req, res) => {
   const db   = getDb();
   const user = db.prepare(`
     SELECT u.id, u.name, u.tier, u.pace_group, u.is_captain, u.bio, u.location, u.joined_at,
+           u.country, u.state, u.city,
+           CASE WHEN c.status = 'verified' THEN c.id   END AS club_id,
+           CASE WHEN c.status = 'verified' THEN c.name END AS club_name,
            ROUND(SUM(a.distance), 1) AS total_miles,
            COUNT(a.id)               AS total_runs
     FROM users u
     LEFT JOIN activities a ON a.user_id = u.id
+    LEFT JOIN clubs c ON c.id = u.club_id
     WHERE u.id = ? AND u.is_active = 1
     GROUP BY u.id
   `).get(req.params.id);
