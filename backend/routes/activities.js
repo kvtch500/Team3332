@@ -1,8 +1,10 @@
 // routes/activities.js — Log, list, and manage runs
 
-const router = require('express').Router();
+const express = require('express');
+const router = express.Router();
 const { getDb } = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { parseGpx } = require('../lib/gpx');
 
 // GET /api/activities — My activities (paginated)
 router.get('/', requireAuth, (req, res) => {
@@ -63,6 +65,17 @@ router.get('/stats', requireAuth, (req, res) => {
   }
 
   res.json({ ...stats, weekly_miles: weekly?.miles || 0, streak });
+});
+
+// POST /api/activities/parse-gpx — Parse a GPX file, return pre-filled fields (does NOT save)
+// Body: raw GPX XML text. Frontend shows the parsed values for review before saving.
+router.post('/parse-gpx', requireAuth, express.text({ type: '*/*', limit: '15mb' }), (req, res) => {
+  try {
+    const parsed = parseGpx(req.body);
+    res.json({ parsed });
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Could not parse GPX file' });
+  }
 });
 
 // GET /api/activities/:id

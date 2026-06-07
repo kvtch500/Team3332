@@ -863,6 +863,14 @@ const api = {
   },
   get:    (path)        => api.req('GET',    path),
   post:   (path, body)  => api.req('POST',   path, body),
+  async postRaw(path, text) {
+    const headers = { 'Content-Type': 'application/gpx+xml' };
+    if (_token) headers['Authorization'] = `Bearer ${_token}`;
+    const res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers, body: text });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+    return data;
+  },
   patch:  (path, body)  => api.req('PATCH',  path, body),
   delete: (path)        => api.req('DELETE', path),
 };
@@ -898,7 +906,46 @@ function Toast({ message, onClose }) {
   return <div className="toast">✅ {message}</div>;
 }
 
-function SVGMap({ runId }) {
+function SVGMap({ runId, routeData }) {
+  // Real route from GPX import (route_data = {source:'gpx', points:[[lat,lon],...]})
+  let real = null;
+  if (routeData) {
+    try {
+      const parsed = typeof routeData === 'string' ? JSON.parse(routeData) : routeData;
+      if (parsed && Array.isArray(parsed.points) && parsed.points.length >= 2) real = parsed.points;
+    } catch (e) { /* fall through to placeholder */ }
+  }
+
+  if (real) {
+    const lats = real.map(p => p[0]), lons = real.map(p => p[1]);
+    const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+    const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+    // Correct horizontal scale for latitude so routes aren't stretched
+    const lonScale = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180);
+    const spanLat = Math.max(maxLat - minLat, 1e-5);
+    const spanLon = Math.max((maxLon - minLon) * lonScale, 1e-5);
+    const W = 300, H = 200, PAD = 16;
+    const scale = Math.min((W - PAD * 2) / spanLon, (H - PAD * 2) / spanLat);
+    const ox = (W - spanLon * scale) / 2, oy = (H - spanLat * scale) / 2;
+    const pts = real.map(([lat, lon]) => [
+      ox + ((lon - minLon) * lonScale) * scale,
+      H - (oy + (lat - minLat) * scale), // flip Y (north = up)
+    ]);
+    const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+    const [sx, sy] = pts[0], [ex, ey] = pts[pts.length - 1];
+    return (
+      <div className="map-placeholder">
+        <svg className="map-route" viewBox="0 0 300 200" preserveAspectRatio="xMidYMid meet">
+          <path d={d} fill="none" stroke="var(--blue, #D4AF37)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
+          <circle cx={sx} cy={sy} r="5" fill="#4caf50" />
+          <circle cx={ex} cy={ey} r="5" fill="#e74c3c" />
+        </svg>
+        <span style={{position:'absolute',bottom:8,right:12,fontSize:'0.72rem',color:'var(--gray)'}}>📍 GPS Route</span>
+      </div>
+    );
+  }
+
+  // Placeholder for manually-logged runs (no GPS data)
   const paths = {
     1: "M 20 150 C 60 80 100 180 150 120 C 200 60 240 160 280",
     2: "M 20 140 C 80 100 120 160 180 100 C 230 50 260 130 280",
@@ -1282,6 +1329,31 @@ function ActivityLog({ onToast }) {
   const [form, setForm] = useState({ name:'Morning Run', distance:'', pace:'', duration:'', notes:'' });
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
   const [selected, setSelected] = useState(null);
+  const [gpx, setGpx] = useState(null);          // { route_data, logged_at, elevation_gain, point_count }
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef(null);
+
+  const handleGpxFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) { onToast('GPX file too large (max 15 MB)'); return; }
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const { parsed } = await api.postRaw('/activities/parse-gpx', text);
+      setForm({
+        name: parsed.name || 'Imported Run',
+        distance: String(parsed.distance),
+        pace: parsed.pace || '',
+        duration: parsed.duration || '',
+        notes: parsed.elevation_gain > 0 ? `Elevation gain: ${parsed.elevation_gain} ft` : '',
+      });
+      setGpx({ route_data: parsed.route_data, logged_at: parsed.logged_at });
+      onToast(`GPX imported — ${parsed.distance} mi. Review & save.`);
+    } catch(err) { onToast(`Import failed: ${err.message}`); }
+    finally { setImporting(false); }
+  };
 
   const loadActivities = () => {
     setLoading(true);
@@ -1303,11 +1375,13 @@ function ActivityLog({ onToast }) {
         pace: form.pace,
         duration: form.duration,
         notes: form.notes,
+        ...(gpx ? { route_data: gpx.route_data, logged_at: gpx.logged_at } : {}),
       });
       loadActivities();
       setShowModal(false);
       onToast('Run logged successfully!');
       setForm({ name:'Morning Run', distance:'', pace:'', duration:'', notes:'' });
+      setGpx(null);
     } catch(e) { onToast(`Error: ${e.message}`); }
     finally { setSaving(false); }
   };
@@ -1328,7 +1402,7 @@ function ActivityLog({ onToast }) {
             <div className="page-title">Activity Log</div>
             <div className="page-sub">{total} runs recorded</div>
           </div>
-          <button className="btn btn-primary btn-sm" onClick={()=>setShowModal(true)}>+ Log Run</button>
+          <button className="btn btn-primary btn-sm" onClick={()=>{setGpx(null);setShowModal(true);}}>+ Log Run</button>
         </div>
       </div>
       <div className="page-body">
@@ -1356,7 +1430,7 @@ function ActivityLog({ onToast }) {
                 </div>
               </div>
               {selected===a.id && (
-                <div style={{marginTop:8}}><SVGMap runId={a.id} /></div>
+                <div style={{marginTop:8}}><SVGMap runId={a.id} routeData={a.route_data} /></div>
               )}
             </div>
           ))}
@@ -1367,6 +1441,11 @@ function ActivityLog({ onToast }) {
         <div className="modal-overlay" onClick={e=>{if(e.target.className==='modal-overlay')setShowModal(false)}}>
           <div className="modal">
             <div className="modal-title">📍 Log a Run</div>
+            <input ref={fileRef} type="file" accept=".gpx,application/gpx+xml" style={{display:'none'}} onChange={handleGpxFile} />
+            <button className="btn btn-ghost btn-sm" style={{width:'100%',marginBottom:14,border:'1px dashed var(--gray)'}} onClick={()=>fileRef.current && fileRef.current.click()} disabled={importing}>
+              {importing ? <Spinner /> : (gpx ? '✓ GPS file imported — choose a different file' : '⌚ Import from GPS file (.gpx)')}
+            </button>
+            {gpx && <div style={{fontSize:'0.75rem',color:'var(--gray)',marginTop:-8,marginBottom:12,textAlign:'center'}}>Works with exports from Strava, Garmin, Apple Watch & more. Route map included.</div>}
             <div className="form-group"><label>Run Name</label><input type="text" value={form.name} onChange={e=>set('name',e.target.value)} /></div>
             <div className="grid-2" style={{gap:12,marginBottom:16}}>
               <div className="form-group" style={{marginBottom:0}}><label>Distance (miles)</label><input type="number" placeholder="0.0" step="0.1" value={form.distance} onChange={e=>set('distance',e.target.value)} /></div>
