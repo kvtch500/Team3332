@@ -139,7 +139,8 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_challenge_members_challenge ON challenge_members(challenge_id);
   CREATE INDEX IF NOT EXISTS idx_challenge_members_user ON challenge_members(user_id);
   CREATE INDEX IF NOT EXISTS idx_group_runs_captain ON group_runs(captain_id);
-  CREATE INDEX IF NOT EXISTS idx_users_club ON users(club_id);
 `;
+// NOTE: idx_users_club is created in db/index.js AFTER the club_id auto-migration —
+// putting it here breaks boot on existing databases that don't have the column yet.
 
 module.exports = schema;
