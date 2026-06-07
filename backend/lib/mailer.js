@@ -51,20 +51,20 @@ function layout(inner) {
   return `<!doctype html><html><body style="margin:0;background:#0f172a;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
   <div style="max-width:560px;margin:0 auto;padding:32px 24px;">
     <div style="text-align:center;margin-bottom:24px;">
-      <span style="font-size:24px;font-weight:800;letter-spacing:1px;color:#0EA5E9;">TEAM 3332</span>
+      <span style="font-size:24px;font-weight:800;letter-spacing:1px;color:#D4AF37;">TEAM 3332</span>
     </div>
     <div style="background:#ffffff;border-radius:14px;padding:32px;color:#0f172a;line-height:1.6;">
       ${inner}
     </div>
     <p style="text-align:center;color:#64748b;font-size:12px;margin-top:24px;">
       TEAM 3332 — your virtual running team.<br>
-      <a href="${CLIENT_URL}" style="color:#10B981;text-decoration:none;">team3332.com</a>
+      <a href="${CLIENT_URL}" style="color:#6B5B95;text-decoration:none;">team3332.com</a>
     </p>
   </div></body></html>`;
 }
 
 function button(href, label) {
-  return `<a href="${href}" style="display:inline-block;background:#0EA5E9;color:#fff;font-weight:700;
+  return `<a href="${href}" style="display:inline-block;background:#D4AF37;color:#fff;font-weight:700;
     padding:13px 26px;border-radius:10px;text-decoration:none;">${label}</a>`;
 }
 
