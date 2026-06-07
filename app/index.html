@@ -1356,10 +1356,12 @@ function fmtPace(secs, miles) {
   const m = Math.floor(spm/60), s = Math.round(spm%60);
   return s === 60 ? `${m+1}:00` : `${m}:${String(s).padStart(2,'0')}`;
 }
-// Speed in mph (walkers see speed; runners see pace)
+// Speed in mph (walkers see speed; runners see pace).
+// 0 distance with elapsed time = legitimately 0.0 mph (standing still),
+// so only show '—' when there's no time data to compute from.
 function fmtSpeed(secs, miles) {
-  if (!miles || miles < 0.01 || !secs) return '—';
-  const mph = miles / (secs / 3600);
+  if (!secs) return '—';
+  const mph = (miles || 0) / (secs / 3600);
   if (mph > 30) return '—'; // GPS glitch guard
   return mph.toFixed(1);
 }
