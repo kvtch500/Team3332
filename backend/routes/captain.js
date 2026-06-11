@@ -64,13 +64,18 @@ router.patch('/runs/:id', requireAuth, requireCaptain, (req, res) => {
   const existing = db.prepare('SELECT * FROM group_runs WHERE id = ? AND captain_id = ?').get(req.params.id, req.user.id);
   if (!existing) return res.status(404).json({ error: 'Run not found' });
 
+  // Editing run details sends the run back through admin approval.
+  // Status-only changes (completing/cancelling) don't require re-approval.
+  const detailsChanged = [title, description, run_type, location, scheduled_at].some(v => v !== undefined);
+
   db.prepare(`
     UPDATE group_runs SET
       title = COALESCE(?, title), description = COALESCE(?, description),
       run_type = COALESCE(?, run_type), location = COALESCE(?, location),
-      scheduled_at = COALESCE(?, scheduled_at), status = COALESCE(?, status)
+      scheduled_at = COALESCE(?, scheduled_at), status = COALESCE(?, status),
+      approval_status = CASE WHEN ? THEN 'pending' ELSE approval_status END
     WHERE id = ?
-  `).run(title ?? null, description ?? null, run_type ?? null, location ?? null, scheduled_at ?? null, status ?? null, req.params.id);
+  `).run(title ?? null, description ?? null, run_type ?? null, location ?? null, scheduled_at ?? null, status ?? null, detailsChanged ? 1 : 0, req.params.id);
 
   const run = db.prepare('SELECT * FROM group_runs WHERE id = ?').get(req.params.id);
   res.json({ run });

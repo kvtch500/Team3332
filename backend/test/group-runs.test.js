@@ -204,6 +204,29 @@ test('admin rejects the run — it disappears from upcoming and joins are blocke
   assert.strictEqual(join.status, 404);
 });
 
+test('editing run details resets an approved run to pending (re-approval required)', async () => {
+  // re-approve first
+  await req('PATCH', `/api/admin/group-runs/${RUN_ID}`, { admin: true, body: { approval_status: 'approved' } });
+  // captain edits the location → back to pending
+  const r = await req('PATCH', `/api/captain/runs/${RUN_ID}`, { auth: token(CAPTAIN), body: { location: 'Lakefront Trail' } });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.body.run.approval_status, 'pending');
+  assert.strictEqual(r.body.run.location, 'Lakefront Trail');
+  // and it's hidden from members again
+  const list = await req('GET', '/api/captain/runs/upcoming', { auth: token(MEMBER) });
+  assert.ok(!list.body.runs.some(x => x.id === RUN_ID), 'edited run must be hidden until re-approved');
+});
+
+test('status-only change (e.g. completed) does NOT reset approval', async () => {
+  await req('PATCH', `/api/admin/group-runs/${RUN_ID}`, { admin: true, body: { approval_status: 'approved' } });
+  const r = await req('PATCH', `/api/captain/runs/${RUN_ID}`, { auth: token(CAPTAIN), body: { status: 'completed' } });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.body.run.status, 'completed');
+  assert.strictEqual(r.body.run.approval_status, 'approved', 'completing a run must not require re-approval');
+  // set back to rejected so the final test below still holds
+  await req('PATCH', `/api/admin/group-runs/${RUN_ID}`, { admin: true, body: { approval_status: 'rejected' } });
+});
+
 test('captain still sees their run (with approval_status) in their own list', async () => {
   const r = await req('GET', '/api/captain/runs', { auth: token(CAPTAIN) });
   assert.strictEqual(r.status, 200);
