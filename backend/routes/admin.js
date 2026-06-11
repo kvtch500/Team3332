@@ -25,6 +25,7 @@ router.get('/stats', requireAdmin, (req, res) => {
   const challenges  = db.prepare(`SELECT COUNT(*) as total FROM challenges`).get();
   const newThisWeek = db.prepare(`SELECT COUNT(*) as total FROM users WHERE joined_at >= date('now','-7 days')`).get();
   const pendingClubs = db.prepare(`SELECT COUNT(*) as total FROM clubs WHERE status = 'pending'`).get();
+  const pendingRuns  = db.prepare(`SELECT COUNT(*) as total FROM group_runs WHERE approval_status = 'pending'`).get();
 
   res.json({
     total_members:   members.total,
@@ -36,7 +37,40 @@ router.get('/stats', requireAdmin, (req, res) => {
     active_challenges: challenges.total,
     new_this_week:   newThisWeek.total,
     pending_clubs:   pendingClubs.total,
+    pending_runs:    pendingRuns.total,
   });
+});
+
+// GET /api/admin/group-runs — All group runs, pending first
+router.get('/group-runs', requireAdmin, (req, res) => {
+  const db = getDb();
+  const runs = db.prepare(`
+    SELECT gr.id, gr.title, gr.description, gr.run_type, gr.location, gr.scheduled_at,
+           gr.status, gr.approval_status, gr.created_at,
+           u.name AS captain_name, u.email AS captain_email,
+           COUNT(grm.user_id) AS member_count
+    FROM group_runs gr
+    JOIN users u ON u.id = gr.captain_id
+    LEFT JOIN group_run_members grm ON grm.run_id = gr.id
+    GROUP BY gr.id
+    ORDER BY CASE gr.approval_status WHEN 'pending' THEN 0 ELSE 1 END, gr.scheduled_at DESC
+  `).all();
+  res.json({ runs });
+});
+
+// PATCH /api/admin/group-runs/:id — Approve or reject a group run
+router.patch('/group-runs/:id', requireAdmin, (req, res) => {
+  const db = getDb();
+  const { approval_status } = req.body;
+
+  if (!['approved', 'rejected', 'pending'].includes(approval_status))
+    return res.status(400).json({ error: 'approval_status must be approved, rejected, or pending' });
+
+  const run = db.prepare('SELECT * FROM group_runs WHERE id = ?').get(req.params.id);
+  if (!run) return res.status(404).json({ error: 'Run not found' });
+
+  db.prepare('UPDATE group_runs SET approval_status = ? WHERE id = ?').run(approval_status, req.params.id);
+  res.json({ run: db.prepare('SELECT * FROM group_runs WHERE id = ?').get(req.params.id) });
 });
 
 // GET /api/admin/clubs — All clubs with member counts

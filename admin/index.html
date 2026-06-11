@@ -155,6 +155,7 @@ let authed = false;
 let page   = 'overview';
 let members = [], memberTotal = 0, memberOffset = 0;
 let activities = [];
+let groupRuns = [], runsLoaded = false;
 let stats = {};
 let search = '', filterTier = '', filterPace = '';
 let toast = null, toastTimer = null;
@@ -196,6 +197,7 @@ function renderShell() {
   const nav = [
     { id: 'overview',   icon: '📊', label: 'Overview' },
     { id: 'members',    icon: '👥', label: 'Members' },
+    { id: 'runs',       icon: '🗓️', label: 'Group Runs' },
     { id: 'activity',   icon: '🏃', label: 'Activity Feed' },
   ];
 
@@ -217,6 +219,7 @@ function renderShell() {
       <main class="main">
         ${page === 'overview'  ? renderOverview()  : ''}
         ${page === 'members'   ? renderMembers()   : ''}
+        ${page === 'runs'      ? renderRuns()      : ''}
         ${page === 'activity'  ? renderActivity()  : ''}
       </main>
     </div>
@@ -251,6 +254,14 @@ function renderOverview() {
             <div class="stat-sub">${stats.captains} captains</div>
           </div>
         </div>
+        ${stats.pending_runs ? `
+        <div class="card" style="border-color:var(--gold)">
+          <div style="padding:16px 24px;display:flex;align-items:center;gap:12px">
+            <span style="font-size:1.2rem">🗓️</span>
+            <div style="flex:1;font-size:0.88rem"><strong>${stats.pending_runs}</strong> group run${stats.pending_runs===1?'':'s'} awaiting your approval</div>
+            <button class="btn btn-sm btn-gold" data-page="runs">Review →</button>
+          </div>
+        </div>` : ''}
         <div class="card">
           <div class="card-header"><div class="card-title">💰 Revenue Snapshot</div></div>
           <div style="padding:24px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px">
@@ -351,6 +362,59 @@ function renderMembers() {
   `;
 }
 
+function renderRuns() {
+  const pending = groupRuns.filter(r => r.approval_status === 'pending');
+  const rest    = groupRuns.filter(r => r.approval_status !== 'pending');
+
+  const runRow = (r, showActions) => `
+    <tr>
+      <td>
+        <div style="font-weight:600">${r.title}</div>
+        ${r.description ? `<div style="font-size:0.78rem;color:var(--gray);margin-top:2px">${r.description}</div>` : ''}
+      </td>
+      <td>
+        <div style="font-weight:600">${r.captain_name}</div>
+        <div style="font-size:0.78rem;color:var(--gray)">${r.captain_email}</div>
+      </td>
+      <td><span class="badge badge-blue">${r.run_type}</span>${r.location ? `<div style="font-size:0.75rem;color:var(--gray);margin-top:3px">📍 ${r.location}</div>` : ''}</td>
+      <td style="color:var(--gray)">${r.scheduled_at ? r.scheduled_at.slice(0,16).replace('T',' ') : '—'}</td>
+      <td style="color:var(--green);font-weight:600">${r.member_count || 0}</td>
+      <td>
+        ${showActions ? `
+          <div class="actions">
+            <button class="btn btn-sm btn-gold" data-run-action="approve" data-id="${r.id}" data-title="${r.title}">✓ Approve</button>
+            <button class="btn btn-sm btn-red"  data-run-action="reject"  data-id="${r.id}" data-title="${r.title}">✕ Reject</button>
+          </div>
+        ` : `
+          <span class="badge ${r.approval_status==='approved'?'badge-green':'badge-gray'}">${r.approval_status}</span>
+          ${r.approval_status==='rejected' ? `<button class="btn btn-sm btn-ghost" style="margin-left:6px" data-run-action="approve" data-id="${r.id}" data-title="${r.title}">Approve</button>` : ''}
+        `}
+      </td>
+    </tr>`;
+
+  const table = (rows, showActions) => `
+    <table>
+      <thead><tr><th>Run</th><th>Captain</th><th>Type</th><th>Scheduled</th><th>Joined</th><th>${showActions ? 'Actions' : 'Status'}</th></tr></thead>
+      <tbody>${rows.map(r => runRow(r, showActions)).join('')}</tbody>
+    </table>`;
+
+  return `
+    <div class="page-header"><div class="page-title">🗓️ Group Runs</div></div>
+    <div class="page-body">
+      ${!runsLoaded ? '<div class="loading-wrap"><div class="spinner"></div></div>' : `
+        <div class="card">
+          <div class="card-header"><div class="card-title">⏳ Awaiting Approval ${pending.length ? `<span class="badge badge-gold" style="margin-left:8px">${pending.length}</span>` : ''}</div></div>
+          ${pending.length === 0 ? '<div class="empty">No runs waiting on you. 🎉</div>' : table(pending, true)}
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">All Group Runs</div></div>
+          ${rest.length === 0 ? '<div class="empty">No approved or rejected runs yet.</div>' : table(rest, false)}
+        </div>
+      `}
+    </div>
+  `;
+}
+
 function renderActivity() {
   return `
     <div class="page-header"><div class="page-title">🏃 Activity Feed</div></div>
@@ -403,6 +467,19 @@ function bindEvents() {
   // Pagination
   document.getElementById('prev-btn')?.addEventListener('click', () => { memberOffset = Math.max(0, memberOffset - 50); loadMembers(); });
   document.getElementById('next-btn')?.addEventListener('click', () => { memberOffset += 50; loadMembers(); });
+
+  // Group run approval actions
+  document.querySelectorAll('[data-run-action]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const { runAction, id, title } = btn.dataset;
+      const status = runAction === 'approve' ? 'approved' : 'rejected';
+      try {
+        await apiFetch(`/group-runs/${id}`, { method: 'PATCH', body: JSON.stringify({ approval_status: status }) });
+        showToast(status === 'approved' ? `✅ "${title}" approved — now visible to members` : `🚫 "${title}" rejected`);
+        loadRuns();
+      } catch(e) { showToast('❌ ' + e.message, 'var(--red)'); }
+    });
+  });
 
   // Member actions
   document.querySelectorAll('[data-action]').forEach(btn => {
@@ -461,6 +538,15 @@ async function loadMembers() {
   } catch(e) { console.error(e); }
 }
 
+async function loadRuns() {
+  try {
+    const data = await apiFetch('/group-runs');
+    groupRuns = data.runs;
+    runsLoaded = true;
+    render();
+  } catch(e) { console.error(e); }
+}
+
 async function loadActivities() {
   try { const data = await apiFetch('/activities'); activities = data.activities; render(); } catch(e) { console.error(e); }
 }
@@ -468,6 +554,7 @@ async function loadActivities() {
 function loadPageData() {
   if (page === 'overview') loadStats();
   if (page === 'members')  loadMembers();
+  if (page === 'runs')     loadRuns();
   if (page === 'activity') loadActivities();
   render();
 }

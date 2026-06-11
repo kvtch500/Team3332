@@ -2240,6 +2240,80 @@ function Challenges({ onToast }) {
 }
 
 /* ══════════════════════════════════════
+   GROUP RUNS (member-facing)
+══════════════════════════════════════ */
+function GroupRuns({ onToast }) {
+  const [runs, setRuns]       = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId]   = useState(null);
+
+  const load = () => {
+    api.get('/captain/runs/upcoming')
+      .then(d => setRuns(d.runs || []))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  };
+  useEffect(load, []);
+
+  const toggleJoin = async (r) => {
+    setBusyId(r.id);
+    try {
+      await api.post(`/captain/runs/${r.id}/${r.joined ? 'leave' : 'join'}`);
+      onToast(r.joined ? 'You left the run.' : '🎉 You\'re in! See you out there.');
+      load();
+    } catch(e) { onToast(e.message); }
+    finally { setBusyId(null); }
+  };
+
+  const typeBadge = (t) => t === 'In-Person' ? 'badge-green' : t === 'Hybrid' ? 'badge-purple' : 'badge-blue';
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="page-header-inner">
+          <div><div className="page-title">Group Runs</div><div className="page-sub">Captain-led runs — virtual & in person</div></div>
+        </div>
+      </div>
+      <div className="page-body">
+        {loading && <div style={{textAlign:'center',padding:40}}><Spinner /></div>}
+        {!loading && runs.length === 0 && (
+          <div className="empty-state">
+            <div className="icon">🗓️</div>
+            <div style={{fontWeight:700,fontSize:'1rem',marginBottom:8}}>No upcoming group runs</div>
+            <p>When a captain schedules a run and it's approved, it'll show up here. Check back soon!</p>
+          </div>
+        )}
+        {runs.map(r => (
+          <div key={r.id} className="card" style={{marginBottom:16}}>
+            <div className="flex justify-between items-center" style={{flexWrap:'wrap',gap:12}}>
+              <div style={{minWidth:0}}>
+                <div className="flex items-center gap-8" style={{marginBottom:4,flexWrap:'wrap'}}>
+                  <div style={{fontWeight:700,fontSize:'1rem'}}>{r.title}</div>
+                  <span className={`badge ${typeBadge(r.run_type)}`}>{r.run_type}</span>
+                </div>
+                <div style={{fontSize:'0.8rem',color:'var(--gray)'}}>
+                  🎖️ Captain {r.captain_name} · {formatDate(r.scheduled_at)}{r.location ? ` · 📍 ${r.location}` : ''}
+                </div>
+                {r.description && <div style={{fontSize:'0.82rem',marginTop:6,color:'var(--gray)'}}>{r.description}</div>}
+              </div>
+              <div style={{textAlign:'right'}}>
+                <button
+                  className={`btn btn-sm ${r.joined ? 'btn-secondary' : 'btn-primary'}`}
+                  disabled={busyId === r.id}
+                  onClick={() => toggleJoin(r)}>
+                  {busyId === r.id ? <Spinner /> : (r.joined ? '✓ Joined — tap to leave' : 'Join Run')}
+                </button>
+                <div style={{fontSize:'0.72rem',color:'var(--gray)',marginTop:6}}>👥 {r.member_count || 0} joined</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════
    CAPTAIN PANEL
 ══════════════════════════════════════ */
 function CaptainPanel({ user, onToast }) {
@@ -2280,7 +2354,7 @@ function CaptainPanel({ user, onToast }) {
       });
       load();
       setShowNew(false);
-      onToast('Group run created!');
+      onToast('Group run submitted — it goes live once an admin approves it.');
       setForm({ title:'', scheduled_at:'', run_type:'Virtual', description:'' });
     } catch(e) { onToast(`Error: ${e.message}`); }
     finally { setSaving(false); }
@@ -2350,6 +2424,11 @@ function CaptainPanel({ user, onToast }) {
                   </div>
                   <div style={{textAlign:'right'}}>
                     <span className={`badge ${r.status==='completed'?'badge-green':'badge-orange'}`}>{r.status}</span>
+                    {r.approval_status !== 'approved' && (
+                      <span className={`badge ${r.approval_status==='pending'?'badge-gray':'badge-purple'}`} style={{marginLeft:6}}>
+                        {r.approval_status==='pending' ? 'awaiting approval' : 'rejected'}
+                      </span>
+                    )}
                     <div style={{fontSize:'0.72rem',color:'var(--gray)',marginTop:4}}>👥 {r.member_count || 0}</div>
                   </div>
                 </div>
@@ -2604,6 +2683,7 @@ const NAV = [
   { id:'activity', icon:'📍', label:'Activity Log' },
   { id:'leaderboard', icon:'🏆', label:'Leaderboard' },
   { id:'challenges', icon:'⚡', label:'Challenges' },
+  { id:'groupruns', icon:'🗓️', label:'Group Runs' },
   { id:'captain', icon:'🎖️', label:'Captain Panel' },
   { id:'profile', icon:'👤', label:'My Profile' },
 ];
@@ -2659,6 +2739,7 @@ function App() {
       case 'activity':   return <ActivityLog onToast={showToast} />;
       case 'leaderboard':return <Leaderboard />;
       case 'challenges': return <Challenges onToast={showToast} />;
+      case 'groupruns':  return <GroupRuns onToast={showToast} />;
       case 'captain':    return <CaptainPanel user={user} onToast={showToast} />;
       case 'profile':    return <Profile user={user} onLogout={()=>{ api.setToken(null); setUser(null); }} onToast={showToast} onUserUpdate={u=>setUser(u)} />;
       default:           return <Dashboard user={user} />;

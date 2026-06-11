@@ -4,6 +4,28 @@ const router = require('express').Router();
 const { getDb } = require('../db');
 const { requireAuth, requireCaptain } = require('../middleware/auth');
 
+// GET /api/captain/runs/upcoming — Member-facing: all admin-approved upcoming runs
+// (must be registered before any '/runs/:id' routes)
+router.get('/runs/upcoming', requireAuth, (req, res) => {
+  const db   = getDb();
+  const runs = db.prepare(`
+    SELECT gr.id, gr.title, gr.description, gr.run_type, gr.location, gr.scheduled_at,
+           u.name AS captain_name, u.pace_group AS captain_pace_group,
+           COUNT(grm.user_id) AS member_count,
+           MAX(CASE WHEN grm.user_id = ? THEN 1 ELSE 0 END) AS joined
+    FROM group_runs gr
+    JOIN users u ON u.id = gr.captain_id
+    LEFT JOIN group_run_members grm ON grm.run_id = gr.id
+    WHERE gr.approval_status = 'approved'
+      AND gr.status = 'upcoming'
+      AND gr.scheduled_at >= datetime('now')
+    GROUP BY gr.id
+    ORDER BY gr.scheduled_at ASC
+  `).all(req.user.id);
+
+  res.json({ runs });
+});
+
 // GET /api/captain/runs — Captain's group runs
 router.get('/runs', requireAuth, requireCaptain, (req, res) => {
   const db   = getDb();
@@ -21,7 +43,7 @@ router.get('/runs', requireAuth, requireCaptain, (req, res) => {
 
 // POST /api/captain/runs — Create a group run
 router.post('/runs', requireAuth, requireCaptain, (req, res) => {
-  const { title, description, run_type = 'Virtual', location, scheduled_at } = req.body;
+  const { title, description = null, run_type = 'Virtual', location = null, scheduled_at } = req.body;
   if (!title || !scheduled_at) return res.status(400).json({ error: 'title and scheduled_at are required' });
 
   const db   = getDb();
@@ -48,7 +70,7 @@ router.patch('/runs/:id', requireAuth, requireCaptain, (req, res) => {
       run_type = COALESCE(?, run_type), location = COALESCE(?, location),
       scheduled_at = COALESCE(?, scheduled_at), status = COALESCE(?, status)
     WHERE id = ?
-  `).run(title, description, run_type, location, scheduled_at, status, req.params.id);
+  `).run(title ?? null, description ?? null, run_type ?? null, location ?? null, scheduled_at ?? null, status ?? null, req.params.id);
 
   const run = db.prepare('SELECT * FROM group_runs WHERE id = ?').get(req.params.id);
   res.json({ run });
@@ -76,10 +98,10 @@ router.get('/runs/:id/members', requireAuth, requireCaptain, (req, res) => {
   res.json({ members });
 });
 
-// POST /api/captain/runs/:id/join — Member joins a group run
+// POST /api/captain/runs/:id/join — Member joins a group run (approved runs only)
 router.post('/runs/:id/join', requireAuth, (req, res) => {
   const db  = getDb();
-  const run = db.prepare('SELECT * FROM group_runs WHERE id = ? AND status = "upcoming"').get(req.params.id);
+  const run = db.prepare(`SELECT * FROM group_runs WHERE id = ? AND status = 'upcoming' AND approval_status = 'approved'`).get(req.params.id);
   if (!run) return res.status(404).json({ error: 'Run not found or no longer open' });
 
   try {
@@ -88,6 +110,14 @@ router.post('/runs/:id/join', requireAuth, (req, res) => {
   } catch {
     res.status(409).json({ error: 'Already joined' });
   }
+});
+
+// POST /api/captain/runs/:id/leave — Member leaves a group run
+router.post('/runs/:id/leave', requireAuth, (req, res) => {
+  const db     = getDb();
+  const result = db.prepare('DELETE FROM group_run_members WHERE run_id = ? AND user_id = ?').run(req.params.id, req.user.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'You have not joined this run' });
+  res.json({ message: 'Left group run' });
 });
 
 // GET /api/captain/stats — Captain's summary stats

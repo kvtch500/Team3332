@@ -110,6 +110,7 @@ const schema = `
     location    TEXT,
     scheduled_at TEXT   NOT NULL,
     status      TEXT    NOT NULL DEFAULT 'upcoming' CHECK(status IN ('upcoming', 'active', 'completed', 'cancelled')),
+    approval_status TEXT NOT NULL DEFAULT 'pending' CHECK(approval_status IN ('pending', 'approved', 'rejected')),
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
