@@ -123,6 +123,29 @@ const schema = `
     UNIQUE(run_id, user_id)
   );
 
+  -- ── CAPTAIN APPLICATIONS ───────────────────────────
+  CREATE TABLE IF NOT EXISTS captain_applications (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    motivation  TEXT    NOT NULL,
+    experience  TEXT,
+    status      TEXT    NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    reviewed_at TEXT
+  );
+
+  -- ── CAPTAIN QUESTIONS (member ↔ captain Q&A) ───────
+  CREATE TABLE IF NOT EXISTS captain_questions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    captain_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    member_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    question    TEXT    NOT NULL,
+    answer      TEXT,
+    status      TEXT    NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'answered')),
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    answered_at TEXT
+  );
+
   -- ── PASSWORD RESETS ────────────────────────────────
   CREATE TABLE IF NOT EXISTS password_resets (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,6 +163,10 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_challenge_members_challenge ON challenge_members(challenge_id);
   CREATE INDEX IF NOT EXISTS idx_challenge_members_user ON challenge_members(user_id);
   CREATE INDEX IF NOT EXISTS idx_group_runs_captain ON group_runs(captain_id);
+  CREATE INDEX IF NOT EXISTS idx_captain_apps_user ON captain_applications(user_id);
+  CREATE INDEX IF NOT EXISTS idx_captain_apps_status ON captain_applications(status);
+  CREATE INDEX IF NOT EXISTS idx_captain_questions_captain ON captain_questions(captain_id);
+  CREATE INDEX IF NOT EXISTS idx_captain_questions_member ON captain_questions(member_id);
 `;
 // NOTE: idx_users_club is created in db/index.js AFTER the club_id auto-migration —
 // putting it here breaks boot on existing databases that don't have the column yet.

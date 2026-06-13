@@ -1,0 +1,27 @@
+{
+  "name": "team3332-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Capacitor native wrapper for the TEAM 3332 app (iOS + Android).",
+  "scripts": {
+    "sync:www": "node sync-www.mjs",
+    "sync": "node sync-www.mjs && npx cap sync",
+    "open:ios": "npx cap open ios",
+    "open:android": "npx cap open android",
+    "run:ios": "node sync-www.mjs && npx cap sync ios && npx cap run ios",
+    "run:android": "node sync-www.mjs && npx cap sync android && npx cap run android"
+  },
+  "dependencies": {
+    "@capacitor/app": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/geolocation": "^6.0.0",
+    "@capacitor/splash-screen": "^6.0.0",
+    "@capacitor/status-bar": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/ios": "^6.0.0"
+  },
+  "comment_background_geolocation": "Step 2 of the plan (background GPS) adds ONE of these — do not install both. Free/community: @capacitor-community/background-geolocation. Production-grade (paid license, most reliable for a fitness app): @transistorsoft/capacitor-background-geolocation. See SETUP-CAPACITOR.md."
+}

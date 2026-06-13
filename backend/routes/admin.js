@@ -26,6 +26,7 @@ router.get('/stats', requireAdmin, (req, res) => {
   const newThisWeek = db.prepare(`SELECT COUNT(*) as total FROM users WHERE joined_at >= date('now','-7 days')`).get();
   const pendingClubs = db.prepare(`SELECT COUNT(*) as total FROM clubs WHERE status = 'pending'`).get();
   const pendingRuns  = db.prepare(`SELECT COUNT(*) as total FROM group_runs WHERE approval_status = 'pending'`).get();
+  const pendingApps  = db.prepare(`SELECT COUNT(*) as total FROM captain_applications WHERE status = 'pending'`).get();
 
   res.json({
     total_members:   members.total,
@@ -38,7 +39,46 @@ router.get('/stats', requireAdmin, (req, res) => {
     new_this_week:   newThisWeek.total,
     pending_clubs:   pendingClubs.total,
     pending_runs:    pendingRuns.total,
+    pending_applications: pendingApps.total,
   });
+});
+
+// GET /api/admin/captain-applications — All captain applications, pending first
+router.get('/captain-applications', requireAdmin, (req, res) => {
+  const db = getDb();
+  const applications = db.prepare(`
+    SELECT ca.id, ca.motivation, ca.experience, ca.status, ca.created_at, ca.reviewed_at,
+           u.id AS user_id, u.name AS user_name, u.email AS user_email,
+           u.tier AS user_tier, u.pace_group AS user_pace_group, u.is_captain
+    FROM captain_applications ca
+    JOIN users u ON u.id = ca.user_id
+    GROUP BY ca.id
+    ORDER BY CASE ca.status WHEN 'pending' THEN 0 ELSE 1 END, ca.created_at DESC
+  `).all();
+  res.json({ applications });
+});
+
+// PATCH /api/admin/captain-applications/:id — Approve (promotes user to captain) or reject
+router.patch('/captain-applications/:id', requireAdmin, (req, res) => {
+  const db = getDb();
+  const { status } = req.body;
+
+  if (!['approved', 'rejected', 'pending'].includes(status))
+    return res.status(400).json({ error: 'status must be approved, rejected, or pending' });
+
+  const application = db.prepare('SELECT * FROM captain_applications WHERE id = ?').get(req.params.id);
+  if (!application) return res.status(404).json({ error: 'Application not found' });
+
+  const reviewedAt = status === 'pending' ? null : "datetime('now')";
+  db.prepare(`UPDATE captain_applications SET status = ?, reviewed_at = ${reviewedAt === null ? 'NULL' : reviewedAt} WHERE id = ?`)
+    .run(status, req.params.id);
+
+  // Approving an application promotes the member to captain.
+  if (status === 'approved') {
+    db.prepare('UPDATE users SET is_captain = 1 WHERE id = ?').run(application.user_id);
+  }
+
+  res.json({ application: db.prepare('SELECT * FROM captain_applications WHERE id = ?').get(req.params.id) });
 });
 
 // GET /api/admin/group-runs — All group runs, pending first

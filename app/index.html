@@ -2316,6 +2316,240 @@ function GroupRuns({ onToast }) {
 /* ══════════════════════════════════════
    CAPTAIN PANEL
 ══════════════════════════════════════ */
+function CaptainApply({ user, onToast }) {
+  const [application, setApplication] = useState(undefined); // undefined = loading
+  const [form, setForm] = useState({ motivation:'', experience:'' });
+  const [saving, setSaving] = useState(false);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const load = () => api.get('/captain/apply/status')
+    .then(d => setApplication(d.application))
+    .catch(() => setApplication(null));
+  useEffect(() => { load(); }, []);
+
+  const submit = async () => {
+    if (!form.motivation.trim()) { onToast('Tell us why you want to be a captain.'); return; }
+    setSaving(true);
+    try {
+      const d = await api.post('/captain/apply', { motivation: form.motivation, experience: form.experience });
+      setApplication(d.application);
+      onToast(d.message || 'Application submitted!');
+    } catch(e) { onToast(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const Header = () => (
+    <div className="page-header">
+      <div className="page-header-inner"><div><div className="page-title">Become a Captain</div><div className="page-sub">Lead group runs & mentor the team</div></div></div>
+    </div>
+  );
+
+  if (application === undefined) {
+    return <div><Header /><div className="page-body"><div style={{textAlign:'center',padding:40}}><Spinner /></div></div></div>;
+  }
+
+  // Pending — under review
+  if (application && application.status === 'pending') {
+    return (
+      <div><Header /><div className="page-body">
+        <div className="empty-state">
+          <div className="icon">⏳</div>
+          <div style={{fontWeight:700,fontSize:'1rem',marginBottom:8}}>Application under review</div>
+          <p>Thanks, {user.name.split(' ')[0]}! An admin is reviewing your captain application. You'll be promoted as soon as it's approved.</p>
+          <div className="card" style={{textAlign:'left',marginTop:20,maxWidth:480}}>
+            <div className="card-title">What you told us</div>
+            <div style={{fontSize:'0.85rem',marginBottom:10}}><strong style={{color:'var(--gray)'}}>Why:</strong> {application.motivation}</div>
+            {application.experience && <div style={{fontSize:'0.85rem'}}><strong style={{color:'var(--gray)'}}>Experience:</strong> {application.experience}</div>}
+          </div>
+        </div>
+      </div></div>
+    );
+  }
+
+  // Approved — needs re-login to pick up captain powers
+  if (application && application.status === 'approved') {
+    return (
+      <div><Header /><div className="page-body">
+        <div className="empty-state">
+          <div className="icon">🎉</div>
+          <div style={{fontWeight:700,fontSize:'1rem',marginBottom:8}}>You're approved — welcome, Captain!</div>
+          <p>Your application was approved. Log out and back in to unlock your Captain Panel, group-run tools, and member questions.</p>
+        </div>
+      </div></div>
+    );
+  }
+
+  // No application yet, or a previous one was rejected → show the form
+  const wasRejected = application && application.status === 'rejected';
+  return (
+    <div><Header /><div className="page-body">
+      <div className="card" style={{maxWidth:560,margin:'0 auto'}}>
+        <div className="captain-header mb-24" style={{padding:0,background:'none',border:'none'}}>
+          <div className="captain-badge-big">🎖️</div>
+          <div>
+            <div style={{fontWeight:700,fontSize:'1.05rem'}}>{wasRejected ? 'Apply again' : 'Lead the pack'}</div>
+            <div style={{color:'var(--gray)',fontSize:'0.85rem',marginTop:2}}>Captains schedule group runs, answer member questions, and represent the team.</div>
+          </div>
+        </div>
+        {wasRejected && (
+          <div className="badge badge-purple" style={{marginBottom:16}}>Your last application wasn't approved — you're welcome to apply again.</div>
+        )}
+        <div className="form-group">
+          <label>Why do you want to be a captain? *</label>
+          <textarea placeholder="What would you bring to the team?" value={form.motivation} onChange={e=>set('motivation',e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label>Relevant experience (optional)</label>
+          <textarea placeholder="Coaching, pacing, organizing runs, years running..." value={form.experience} onChange={e=>set('experience',e.target.value)} />
+        </div>
+        <button className="btn btn-primary btn-full" onClick={submit} disabled={saving}>
+          {saving ? <Spinner /> : 'Submit Application'}
+        </button>
+      </div>
+    </div></div>
+  );
+}
+
+function CaptainInbox({ onToast }) {
+  const [questions, setQuestions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [replyId, setReplyId] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const load = () => api.get('/captain/questions/inbox')
+    .then(d => setQuestions(d.questions || []))
+    .catch(console.error)
+    .finally(() => setLoading(false));
+  useEffect(() => { load(); }, []);
+
+  const openCount = questions.filter(q => q.status === 'open').length;
+
+  const sendReply = async (id) => {
+    if (!replyText.trim()) return;
+    setSaving(true);
+    try {
+      await api.post(`/captain/questions/${id}/answer`, { answer: replyText });
+      setReplyId(null); setReplyText('');
+      onToast('Reply sent ✓');
+      load();
+    } catch(e) { onToast(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="card">
+      <div className="card-title">Member Questions {openCount > 0 && <span className="badge badge-orange" style={{marginLeft:6}}>{openCount} new</span>}</div>
+      {loading && <div style={{textAlign:'center',padding:16}}><Spinner /></div>}
+      {!loading && questions.length === 0 && <div style={{color:'var(--gray)',fontSize:'0.85rem',padding:'8px 0'}}>No questions yet. Members can ask you anything from "Ask a Captain".</div>}
+      {questions.map(q => (
+        <div key={q.id} style={{padding:'12px 0',borderBottom:'1px solid var(--border)'}}>
+          <div className="flex justify-between items-center" style={{marginBottom:4}}>
+            <div style={{fontWeight:600,fontSize:'0.85rem'}}>{q.member_name} <span style={{color:'var(--gray)',fontWeight:400}}>· Pace {q.member_pace_group}</span></div>
+            <span className={`badge ${q.status==='answered'?'badge-green':'badge-orange'}`}>{q.status}</span>
+          </div>
+          <div style={{fontSize:'0.88rem',marginBottom:6}}>{q.question}</div>
+          {q.answer && <div style={{fontSize:'0.82rem',color:'var(--gray)',borderLeft:'2px solid var(--blue)',paddingLeft:10,marginTop:6}}><strong>You:</strong> {q.answer}</div>}
+          {q.status === 'open' && replyId !== q.id && (
+            <button className="btn btn-secondary btn-sm" style={{marginTop:8}} onClick={()=>{setReplyId(q.id);setReplyText('');}}>Reply</button>
+          )}
+          {replyId === q.id && (
+            <div style={{marginTop:8}}>
+              <textarea placeholder="Your answer..." value={replyText} onChange={e=>setReplyText(e.target.value)} />
+              <div className="flex gap-12" style={{marginTop:8}}>
+                <button className="btn btn-primary btn-sm" onClick={()=>sendReply(q.id)} disabled={saving}>{saving ? <Spinner /> : 'Send'}</button>
+                <button className="btn btn-ghost btn-sm" onClick={()=>setReplyId(null)}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AskCaptain({ user, onToast }) {
+  const [captains, setCaptains] = useState([]);
+  const [questions, setQuestions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ captain_id:'', question:'' });
+  const [saving, setSaving] = useState(false);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const load = () => Promise.all([api.get('/captain/list'), api.get('/captain/questions/mine')])
+    .then(([c, q]) => { setCaptains((c.captains||[]).filter(x=>x.id!==user.id)); setQuestions(q.questions || []); })
+    .catch(console.error)
+    .finally(() => setLoading(false));
+  useEffect(() => { load(); }, []);
+
+  const ask = async () => {
+    if (!form.captain_id) { onToast('Pick a captain to ask.'); return; }
+    if (!form.question.trim()) { onToast('Type your question first.'); return; }
+    setSaving(true);
+    try {
+      await api.post('/captain/questions', { captain_id: Number(form.captain_id), question: form.question });
+      setForm({ captain_id:'', question:'' });
+      onToast('Question sent ✓');
+      load();
+    } catch(e) { onToast(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="page-header-inner"><div><div className="page-title">Ask a Captain</div><div className="page-sub">Get advice from your team captains</div></div></div>
+      </div>
+      <div className="page-body">
+        {loading && <div style={{textAlign:'center',padding:40}}><Spinner /></div>}
+        {!loading && (
+          <div className="grid-2">
+            <div className="card">
+              <div className="card-title">Ask a question</div>
+              {captains.length === 0 ? (
+                <div style={{color:'var(--gray)',fontSize:'0.85rem',padding:'8px 0'}}>No captains are available to ask right now. Check back soon!</div>
+              ) : (
+                <>
+                  <div className="form-group">
+                    <label>Captain</label>
+                    <select value={form.captain_id} onChange={e=>set('captain_id',e.target.value)}>
+                      <option value="">Choose a captain…</option>
+                      {captains.map(c=>(
+                        <option key={c.id} value={c.id}>{c.name} (Pace {c.pace_group}){c.city ? ` · ${c.city}` : ''}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Your question</label>
+                    <textarea placeholder="Ask about training, pacing, gear, race prep..." value={form.question} onChange={e=>set('question',e.target.value)} />
+                  </div>
+                  <button className="btn btn-primary btn-full" onClick={ask} disabled={saving}>{saving ? <Spinner /> : 'Send Question'}</button>
+                </>
+              )}
+            </div>
+            <div className="card">
+              <div className="card-title">Your questions</div>
+              {questions.length === 0 && <div style={{color:'var(--gray)',fontSize:'0.85rem',padding:'8px 0'}}>You haven't asked anything yet.</div>}
+              {questions.map(q=>(
+                <div key={q.id} style={{padding:'12px 0',borderBottom:'1px solid var(--border)'}}>
+                  <div className="flex justify-between items-center" style={{marginBottom:4}}>
+                    <div style={{fontWeight:600,fontSize:'0.82rem'}}>🎖️ {q.captain_name}</div>
+                    <span className={`badge ${q.status==='answered'?'badge-green':'badge-orange'}`}>{q.status}</span>
+                  </div>
+                  <div style={{fontSize:'0.88rem',marginBottom:6}}>{q.question}</div>
+                  {q.answer
+                    ? <div style={{fontSize:'0.82rem',color:'var(--gray)',borderLeft:'2px solid var(--blue)',paddingLeft:10,marginTop:6}}><strong>{q.captain_name.split(' ')[0]}:</strong> {q.answer}</div>
+                    : <div style={{fontSize:'0.78rem',color:'var(--gray)',fontStyle:'italic'}}>Awaiting a reply…</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CaptainPanel({ user, onToast }) {
   const [myRuns, setMyRuns]   = useState([]);
   const [captStats, setCaptStats] = useState(null);
@@ -2334,13 +2568,6 @@ function CaptainPanel({ user, onToast }) {
   };
 
   useEffect(load, []);
-
-  const applyCapt = async () => {
-    try {
-      const d = await api.post('/captain/apply');
-      onToast(d.message || 'Application submitted!');
-    } catch(e) { onToast(e.message); }
-  };
 
   const createRun = async () => {
     if (!form.title) return;
@@ -2361,21 +2588,7 @@ function CaptainPanel({ user, onToast }) {
   };
 
   if (!user.is_captain) {
-    return (
-      <div>
-        <div className="page-header">
-          <div className="page-header-inner"><div><div className="page-title">Captain Panel</div><div className="page-sub">Captain-only area</div></div></div>
-        </div>
-        <div className="page-body">
-          <div className="empty-state">
-            <div className="icon">🎖️</div>
-            <div style={{fontWeight:700,fontSize:'1rem',marginBottom:8}}>You're not a Captain yet</div>
-            <p>Captains are selected based on consistent performance, qualifying runs, and community involvement. Keep running — you could be next.</p>
-            <button className="btn btn-primary btn-sm" style={{marginTop:20}} onClick={applyCapt}>Apply to Become a Captain</button>
-          </div>
-        </div>
-      </div>
-    );
+    return <CaptainApply user={user} onToast={onToast} />;
   }
 
   return (
@@ -2437,6 +2650,7 @@ function CaptainPanel({ user, onToast }) {
           </div>
 
           <div style={{display:'flex',flexDirection:'column',gap:16}}>
+            <CaptainInbox onToast={onToast} />
             <div className="card">
               <div className="card-title">Captain Tools</div>
               {[
@@ -2684,6 +2898,7 @@ const NAV = [
   { id:'leaderboard', icon:'🏆', label:'Leaderboard' },
   { id:'challenges', icon:'⚡', label:'Challenges' },
   { id:'groupruns', icon:'🗓️', label:'Group Runs' },
+  { id:'askcaptain', icon:'💬', label:'Ask a Captain' },
   { id:'captain', icon:'🎖️', label:'Captain Panel' },
   { id:'profile', icon:'👤', label:'My Profile' },
 ];
@@ -2740,6 +2955,7 @@ function App() {
       case 'leaderboard':return <Leaderboard />;
       case 'challenges': return <Challenges onToast={showToast} />;
       case 'groupruns':  return <GroupRuns onToast={showToast} />;
+      case 'askcaptain': return <AskCaptain user={user} onToast={showToast} />;
       case 'captain':    return <CaptainPanel user={user} onToast={showToast} />;
       case 'profile':    return <Profile user={user} onLogout={()=>{ api.setToken(null); setUser(null); }} onToast={showToast} onUserUpdate={u=>setUser(u)} />;
       default:           return <Dashboard user={user} />;

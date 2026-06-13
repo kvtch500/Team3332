@@ -147,11 +147,119 @@ router.get('/stats', requireAuth, requireCaptain, (req, res) => {
   res.json({ ...runStats, total_members_mentored: memberCount.total_members });
 });
 
-// POST /api/captain/apply — Apply to become a captain
+// ── CAPTAIN APPLICATIONS ─────────────────────────────────────
+
+// GET /api/captain/apply/status — The member's most recent application (or null)
+router.get('/apply/status', requireAuth, (req, res) => {
+  const db = getDb();
+  const application = db.prepare(
+    `SELECT id, motivation, experience, status, created_at, reviewed_at
+     FROM captain_applications WHERE user_id = ? ORDER BY id DESC LIMIT 1`
+  ).get(req.user.id);
+  res.json({ application: application || null });
+});
+
+// POST /api/captain/apply — Apply to become a captain (stores the application)
 router.post('/apply', requireAuth, (req, res) => {
-  if (req.user.is_captain) return res.status(400).json({ error: 'Already a captain' });
-  // In production: store application, notify admin
-  res.json({ message: 'Application received. You will be notified within 5–7 business days.' });
+  const db = getDb();
+
+  // Source of truth is the DB, not the (possibly stale) token.
+  const me = db.prepare('SELECT is_captain FROM users WHERE id = ?').get(req.user.id);
+  if (me?.is_captain) return res.status(400).json({ error: 'Already a captain' });
+
+  const motivation = (req.body.motivation || '').trim();
+  const experience = (req.body.experience || '').trim() || null;
+  if (!motivation) return res.status(400).json({ error: 'Tell us why you want to be a captain' });
+
+  const pending = db.prepare(
+    `SELECT id FROM captain_applications WHERE user_id = ? AND status = 'pending'`
+  ).get(req.user.id);
+  if (pending) return res.status(409).json({ error: 'You already have an application under review' });
+
+  const info = db.prepare(
+    `INSERT INTO captain_applications (user_id, motivation, experience) VALUES (?, ?, ?)`
+  ).run(req.user.id, motivation, experience);
+
+  const application = db.prepare('SELECT * FROM captain_applications WHERE id = ?').get(info.lastInsertRowid);
+  res.status(201).json({ application, message: 'Application received. An admin will review it soon.' });
+});
+
+// ── CAPTAIN Q&A ──────────────────────────────────────────────
+
+// GET /api/captain/list — Captains a member can ask a question (id, name, pace_group)
+router.get('/list', requireAuth, (req, res) => {
+  const db = getDb();
+  const captains = db.prepare(
+    `SELECT id, name, pace_group, city, state, country
+     FROM users WHERE is_captain = 1 AND is_active = 1 ORDER BY name ASC`
+  ).all();
+  res.json({ captains });
+});
+
+// GET /api/captain/questions/mine — Member's own questions, with answers
+router.get('/questions/mine', requireAuth, (req, res) => {
+  const db = getDb();
+  const questions = db.prepare(
+    `SELECT q.id, q.question, q.answer, q.status, q.created_at, q.answered_at,
+            u.name AS captain_name
+     FROM captain_questions q
+     JOIN users u ON u.id = q.captain_id
+     WHERE q.member_id = ?
+     ORDER BY q.created_at DESC`
+  ).all(req.user.id);
+  res.json({ questions });
+});
+
+// GET /api/captain/questions/inbox — Captain's inbox (open first)
+router.get('/questions/inbox', requireAuth, requireCaptain, (req, res) => {
+  const db = getDb();
+  const questions = db.prepare(
+    `SELECT q.id, q.question, q.answer, q.status, q.created_at, q.answered_at,
+            u.name AS member_name, u.pace_group AS member_pace_group
+     FROM captain_questions q
+     JOIN users u ON u.id = q.member_id
+     WHERE q.captain_id = ?
+     ORDER BY CASE q.status WHEN 'open' THEN 0 ELSE 1 END, q.created_at DESC`
+  ).all(req.user.id);
+  res.json({ questions });
+});
+
+// POST /api/captain/questions — Member asks a captain a question
+router.post('/questions', requireAuth, (req, res) => {
+  const db = getDb();
+  const captainId = parseInt(req.body.captain_id, 10);
+  const question  = (req.body.question || '').trim();
+
+  if (!captainId || !question) return res.status(400).json({ error: 'captain_id and question are required' });
+
+  const captain = db.prepare(
+    `SELECT id FROM users WHERE id = ? AND is_captain = 1 AND is_active = 1`
+  ).get(captainId);
+  if (!captain) return res.status(404).json({ error: 'Captain not found' });
+  if (captainId === req.user.id) return res.status(400).json({ error: 'You cannot ask yourself' });
+
+  const info = db.prepare(
+    `INSERT INTO captain_questions (captain_id, member_id, question) VALUES (?, ?, ?)`
+  ).run(captainId, req.user.id, question);
+
+  const created = db.prepare('SELECT * FROM captain_questions WHERE id = ?').get(info.lastInsertRowid);
+  res.status(201).json({ question: created });
+});
+
+// POST /api/captain/questions/:id/answer — Captain answers a question addressed to them
+router.post('/questions/:id/answer', requireAuth, requireCaptain, (req, res) => {
+  const db = getDb();
+  const answer = (req.body.answer || '').trim();
+  if (!answer) return res.status(400).json({ error: 'answer is required' });
+
+  const q = db.prepare('SELECT * FROM captain_questions WHERE id = ? AND captain_id = ?').get(req.params.id, req.user.id);
+  if (!q) return res.status(404).json({ error: 'Question not found' });
+
+  db.prepare(
+    `UPDATE captain_questions SET answer = ?, status = 'answered', answered_at = datetime('now') WHERE id = ?`
+  ).run(answer, req.params.id);
+
+  res.json({ question: db.prepare('SELECT * FROM captain_questions WHERE id = ?').get(req.params.id) });
 });
 
 module.exports = router;

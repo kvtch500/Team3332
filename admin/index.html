@@ -156,6 +156,7 @@ let page   = 'overview';
 let members = [], memberTotal = 0, memberOffset = 0;
 let activities = [];
 let groupRuns = [], runsLoaded = false;
+let applications = [], appsLoaded = false;
 let stats = {};
 let search = '', filterTier = '', filterPace = '';
 let toast = null, toastTimer = null;
@@ -198,6 +199,7 @@ function renderShell() {
     { id: 'overview',   icon: '📊', label: 'Overview' },
     { id: 'members',    icon: '👥', label: 'Members' },
     { id: 'runs',       icon: '🗓️', label: 'Group Runs' },
+    { id: 'captains',   icon: '🎖️', label: 'Captain Apps' },
     { id: 'activity',   icon: '🏃', label: 'Activity Feed' },
   ];
 
@@ -220,6 +222,7 @@ function renderShell() {
         ${page === 'overview'  ? renderOverview()  : ''}
         ${page === 'members'   ? renderMembers()   : ''}
         ${page === 'runs'      ? renderRuns()      : ''}
+        ${page === 'captains'  ? renderCaptainApps() : ''}
         ${page === 'activity'  ? renderActivity()  : ''}
       </main>
     </div>
@@ -260,6 +263,14 @@ function renderOverview() {
             <span style="font-size:1.2rem">🗓️</span>
             <div style="flex:1;font-size:0.88rem"><strong>${stats.pending_runs}</strong> group run${stats.pending_runs===1?'':'s'} awaiting your approval</div>
             <button class="btn btn-sm btn-gold" data-page="runs">Review →</button>
+          </div>
+        </div>` : ''}
+        ${stats.pending_applications ? `
+        <div class="card" style="border-color:var(--gold)">
+          <div style="padding:16px 24px;display:flex;align-items:center;gap:12px">
+            <span style="font-size:1.2rem">🎖️</span>
+            <div style="flex:1;font-size:0.88rem"><strong>${stats.pending_applications}</strong> captain application${stats.pending_applications===1?'':'s'} awaiting your review</div>
+            <button class="btn btn-sm btn-gold" data-page="captains">Review →</button>
           </div>
         </div>` : ''}
         <div class="card">
@@ -415,6 +426,59 @@ function renderRuns() {
   `;
 }
 
+function renderCaptainApps() {
+  const pending = applications.filter(a => a.status === 'pending');
+  const rest    = applications.filter(a => a.status !== 'pending');
+
+  const appRow = (a, showActions) => `
+    <tr>
+      <td>
+        <div style="font-weight:600">${a.user_name}</div>
+        ${a.is_captain ? '<span class="badge badge-gold">⭐ Captain</span>' : ''}
+      </td>
+      <td style="color:var(--gray)">${a.user_email}</td>
+      <td><span class="badge ${a.user_tier==='Elite'?'badge-gold':'badge-gray'}">${a.user_tier}</span> <span class="badge badge-blue">Group ${a.user_pace_group}</span></td>
+      <td style="max-width:360px">
+        <div style="font-size:0.85rem">${a.motivation}</div>
+        ${a.experience ? `<div style="font-size:0.78rem;color:var(--gray);margin-top:4px"><strong>Experience:</strong> ${a.experience}</div>` : ''}
+      </td>
+      <td style="color:var(--gray)">${a.created_at ? a.created_at.slice(0,10) : '—'}</td>
+      <td>
+        ${showActions ? `
+          <div class="actions">
+            <button class="btn btn-sm btn-gold" data-app-action="approve" data-id="${a.id}" data-name="${a.user_name}">✓ Approve</button>
+            <button class="btn btn-sm btn-red"  data-app-action="reject"  data-id="${a.id}" data-name="${a.user_name}">✕ Reject</button>
+          </div>
+        ` : `
+          <span class="badge ${a.status==='approved'?'badge-green':'badge-gray'}">${a.status}</span>
+          ${a.status==='rejected' ? `<button class="btn btn-sm btn-ghost" style="margin-left:6px" data-app-action="approve" data-id="${a.id}" data-name="${a.user_name}">Approve</button>` : ''}
+        `}
+      </td>
+    </tr>`;
+
+  const table = (rows, showActions) => `
+    <table>
+      <thead><tr><th>Applicant</th><th>Email</th><th>Member</th><th>Why / Experience</th><th>Applied</th><th>${showActions ? 'Actions' : 'Status'}</th></tr></thead>
+      <tbody>${rows.map(a => appRow(a, showActions)).join('')}</tbody>
+    </table>`;
+
+  return `
+    <div class="page-header"><div class="page-title">🎖️ Captain Applications</div></div>
+    <div class="page-body">
+      ${!appsLoaded ? '<div class="loading-wrap"><div class="spinner"></div></div>' : `
+        <div class="card">
+          <div class="card-header"><div class="card-title">⏳ Awaiting Review ${pending.length ? `<span class="badge badge-gold" style="margin-left:8px">${pending.length}</span>` : ''}</div></div>
+          ${pending.length === 0 ? '<div class="empty">No applications waiting on you. 🎉</div>' : table(pending, true)}
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">All Applications</div></div>
+          ${rest.length === 0 ? '<div class="empty">No reviewed applications yet.</div>' : table(rest, false)}
+        </div>
+      `}
+    </div>
+  `;
+}
+
 function renderActivity() {
   return `
     <div class="page-header"><div class="page-title">🏃 Activity Feed</div></div>
@@ -477,6 +541,19 @@ function bindEvents() {
         await apiFetch(`/group-runs/${id}`, { method: 'PATCH', body: JSON.stringify({ approval_status: status }) });
         showToast(status === 'approved' ? `✅ "${title}" approved — now visible to members` : `🚫 "${title}" rejected`);
         loadRuns();
+      } catch(e) { showToast('❌ ' + e.message, 'var(--red)'); }
+    });
+  });
+
+  // Captain application actions
+  document.querySelectorAll('[data-app-action]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const { appAction, id, name } = btn.dataset;
+      const status = appAction === 'approve' ? 'approved' : 'rejected';
+      try {
+        await apiFetch(`/captain-applications/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+        showToast(status === 'approved' ? `✅ ${name} approved — now a Captain` : `🚫 ${name}'s application rejected`);
+        loadApplications();
       } catch(e) { showToast('❌ ' + e.message, 'var(--red)'); }
     });
   });
@@ -551,10 +628,20 @@ async function loadActivities() {
   try { const data = await apiFetch('/activities'); activities = data.activities; render(); } catch(e) { console.error(e); }
 }
 
+async function loadApplications() {
+  try {
+    const data = await apiFetch('/captain-applications');
+    applications = data.applications;
+    appsLoaded = true;
+    render();
+  } catch(e) { console.error(e); }
+}
+
 function loadPageData() {
   if (page === 'overview') loadStats();
   if (page === 'members')  loadMembers();
   if (page === 'runs')     loadRuns();
+  if (page === 'captains') loadApplications();
   if (page === 'activity') loadActivities();
   render();
 }

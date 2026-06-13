@@ -1,0 +1,28 @@
+<!--
+  ios-Info.plist-additions.xml — paste these keys into ios/App/App/Info.plist
+  AFTER running `npx cap add ios`. They are required for GPS run-tracking and,
+  in Step 3, background location. Edit the usage strings to taste — Apple shows
+  them verbatim in the permission prompts and reviews them.
+
+  In Xcode: open ios/App/App/Info.plist, or edit the file directly and add the
+  keys below inside the top-level <dict>.
+-->
+
+<!-- Foreground location (needed now, for in-app run recording) -->
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>TEAM 3332 uses your location to map your run and calculate distance and pace while you record.</string>
+
+<!-- Background location (needed in Step 3, when GPS keeps tracking on the lock screen) -->
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+<string>TEAM 3332 keeps tracking your route when your screen is off or the app is in the background, so your run is recorded accurately from start to finish.</string>
+
+<!-- Background modes — enables location updates while backgrounded.
+     Add 'processing'/'fetch' only if your chosen background-geolocation plugin requires them. -->
+<key>UIBackgroundModes</key>
+<array>
+  <string>location</string>
+</array>
+
+<!-- Motion (only if the production plugin's activity/motion detection is enabled) -->
+<key>NSMotionUsageDescription</key>
+<string>TEAM 3332 uses motion data to detect when you start and stop moving, improving battery life and tracking accuracy.</string>

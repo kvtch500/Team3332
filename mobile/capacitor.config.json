@@ -1,0 +1,23 @@
+{
+  "appId": "com.team3332.app",
+  "appName": "TEAM 3332",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https"
+  },
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#080B12"
+  },
+  "android": {
+    "backgroundColor": "#080B12"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "backgroundColor": "#080B12",
+      "showSpinner": false
+    }
+  }
+}

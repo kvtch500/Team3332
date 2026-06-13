@@ -1,0 +1,13 @@
+# Capacitor / native — generated on the Mac by `npx cap add ios|android`.
+# Regenerated from this config; not committed.
+/node_modules/
+/ios/
+/android/
+
+# www/ is generated from ../app by sync-www.mjs. Committed so the repo always
+# has a buildable bundle even before a sync; safe to delete and regenerate.
+# (Comment the next line out if you prefer to commit www/.)
+/www/
+
+# macOS
+.DS_Store
