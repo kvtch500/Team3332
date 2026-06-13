@@ -10,10 +10,19 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // ── MIDDLEWARE ────────────────────────────────────────────────
+// Allowed browser origins in production. Includes the Capacitor native app,
+// whose WebView origin is localhost (https when iosScheme/androidScheme='https',
+// or capacitor://localhost on iOS's default scheme).
+const ALLOWED_ORIGINS = [
+  'https://team3332.com',
+  'https://app.team3332.com',
+  'capacitor://localhost',  // iOS native (Capacitor default scheme)
+  'https://localhost',      // iOS/Android native (scheme = 'https')
+  'http://localhost',       // Android native (default)
+];
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? ['https://team3332.com', 'https://app.team3332.com']
-    : '*',
+  origin: process.env.NODE_ENV === 'production' ? ALLOWED_ORIGINS : '*',
   credentials: true,
 }));
 
