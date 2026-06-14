@@ -12,6 +12,7 @@
     "run:android": "node sync-www.mjs && npx cap sync android && npx cap run android"
   },
   "dependencies": {
+    "@capacitor-community/background-geolocation": "^1.2.26",
     "@capacitor/app": "^6.0.0",
     "@capacitor/core": "^6.0.0",
     "@capacitor/geolocation": "^6.0.0",
@@ -23,5 +24,5 @@
     "@capacitor/cli": "^6.0.0",
     "@capacitor/ios": "^6.0.0"
   },
-  "comment_background_geolocation": "Step 2 of the plan (background GPS) adds ONE of these — do not install both. Free/community: @capacitor-community/background-geolocation. Production-grade (paid license, most reliable for a fitness app): @transistorsoft/capacitor-background-geolocation. See SETUP-CAPACITOR.md."
+  "comment_background_geolocation": "Step 2 (background GPS) uses the free/community plugin @capacitor-community/background-geolocation (v1.x = the Capacitor 6 line). The web app wires it via window.Capacitor.registerPlugin('BackgroundGeolocation') and falls back to navigator.geolocation in the browser — see app/index.html GeoTracker. To upgrade later to the production-grade @transistorsoft/capacitor-background-geolocation (paid license), swap the registerPlugin call. After changing this, run `npm install` then `npx cap sync` on the Mac. See SETUP-CAPACITOR.md Step 3."
 }

@@ -1690,6 +1690,91 @@ async function shareActivity(opts, onToast) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// GeoTracker — one location API for two runtimes.
+//   • Native (Capacitor iOS/Android): uses @capacitor-community/background-geolocation
+//     for the recording watch, so tracking continues when the screen locks or the
+//     app is backgrounded. Foreground "GPS ready" preview uses @capacitor/geolocation.
+//   • Web (team3332.com): falls back to navigator.geolocation, exactly as before.
+// Every fix is normalized to { lat, lon, accuracy, t } — the shape recorderStep wants.
+// ---------------------------------------------------------------------------
+const GeoTracker = (() => {
+  const Cap = (typeof window !== 'undefined') ? window.Capacitor : null;
+  const isNative = !!(Cap && typeof Cap.isNativePlatform === 'function' && Cap.isNativePlatform());
+  let _bg = null, _fg = null;
+  const bg = () => { if (!_bg && Cap) _bg = Cap.registerPlugin('BackgroundGeolocation'); return _bg; };
+  const fg = () => { if (!_fg && Cap) _fg = Cap.registerPlugin('Geolocation'); return _fg; };
+
+  // 'denied' if the user refused location, otherwise 'error'
+  const classify = (e) => {
+    const code = e && e.code;
+    const msg = ((e && (e.message || e.code)) || '').toString().toLowerCase();
+    if (code === 1 || code === 'NOT_AUTHORIZED' || /denied|not_authorized|permission/.test(msg)) return 'denied';
+    return 'error';
+  };
+
+  // Foreground preview: report 'ready' | 'waiting' | 'denied' | 'error' as a fix arrives.
+  function startPreview(onStatus) {
+    if (isNative) {
+      const h = { native: true, id: null, dead: false };
+      fg().watchPosition({ enableHighAccuracy: true }, (pos, err) => {
+        if (err) { onStatus(classify(err)); return; }
+        if (pos && pos.coords) onStatus(pos.coords.accuracy <= 50 ? 'ready' : 'waiting');
+      }).then(id => { h.id = id; if (h.dead) fg().clearWatch({ id }); })
+        .catch(() => onStatus('error'));
+      return h;
+    }
+    if (!navigator.geolocation) { onStatus('error'); return null; }
+    const id = navigator.geolocation.watchPosition(
+      pos => onStatus(pos.coords.accuracy <= 50 ? 'ready' : 'waiting'),
+      err => onStatus(err.code === 1 ? 'denied' : 'error'),
+      { enableHighAccuracy: true, maximumAge: 0 }
+    );
+    return { native: false, id };
+  }
+
+  function stopPreview(h) {
+    if (!h) return;
+    if (h.native) { h.dead = true; if (h.id != null) fg().clearWatch({ id: h.id }); }
+    else navigator.geolocation.clearWatch(h.id);
+  }
+
+  // Recording watch: native = background-capable; web = high-accuracy watch.
+  // onFix({lat,lon,accuracy,t}); onError(kind) where kind is 'denied' | 'error'.
+  function startRecording(onFix, onError) {
+    if (isNative) {
+      const h = { native: true, id: null, dead: false };
+      bg().addWatcher({
+        backgroundTitle: 'TEAM 3332 — run in progress',
+        backgroundMessage: 'Recording your route. Tap to return to the app.',
+        requestPermissions: true,
+        stale: false,
+        distanceFilter: 3,
+      }, (location, err) => {
+        if (err) { onError && onError(classify(err)); return; }
+        if (!location) return;
+        onFix({ lat: location.latitude, lon: location.longitude, accuracy: location.accuracy, t: location.time });
+      }).then(id => { h.id = id; if (h.dead) bg().removeWatcher({ id }); })
+        .catch(() => onError && onError('error'));
+      return h;
+    }
+    const id = navigator.geolocation.watchPosition(
+      pos => onFix({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy, t: pos.timestamp }),
+      err => onError && onError(err && err.code === 1 ? 'denied' : 'error'),
+      { enableHighAccuracy: true, maximumAge: 1000 }
+    );
+    return { native: false, id };
+  }
+
+  function stopRecording(h) {
+    if (!h) return;
+    if (h.native) { h.dead = true; if (h.id != null) bg().removeWatcher({ id: h.id }); }
+    else navigator.geolocation.clearWatch(h.id);
+  }
+
+  return { isNative, startPreview, stopPreview, startRecording, stopRecording };
+})();
+
 function RecordRun({ onClose, onSaved, onToast }) {
   const [phase, setPhase] = useState('idle');     // idle | recording | review
   const [actType, setActType] = useState('Run');
@@ -1706,15 +1791,10 @@ function RecordRun({ onClose, onSaved, onToast }) {
 
   const miles = meters / 1609.344;
 
-  // Pre-acquire GPS on open so Start is instant
+  // Pre-acquire GPS on open so Start is instant (native: when-in-use; web: browser)
   useEffect(() => {
-    if (!navigator.geolocation) { setGpsStatus('error'); return; }
-    const id = navigator.geolocation.watchPosition(
-      pos => setGpsStatus(pos.coords.accuracy <= 50 ? 'ready' : 'waiting'),
-      err => setGpsStatus(err.code === 1 ? 'denied' : 'error'),
-      { enableHighAccuracy: true, maximumAge: 0 }
-    );
-    return () => navigator.geolocation.clearWatch(id);
+    const h = GeoTracker.startPreview(setGpsStatus);
+    return () => GeoTracker.stopPreview(h);
   }, []);
 
   // Keep screen awake while recording (re-acquire when app returns to foreground)
@@ -1739,16 +1819,12 @@ function RecordRun({ onClose, onSaved, onToast }) {
     stRef.current = { meters: 0, last: null, points: [] };
     startRef.current = new Date();
     setMeters(0); setElapsed(0);
-    watchRef.current = navigator.geolocation.watchPosition(
-      pos => {
-        stRef.current = recorderStep(stRef.current, {
-          lat: pos.coords.latitude, lon: pos.coords.longitude,
-          accuracy: pos.coords.accuracy, t: pos.timestamp,
-        });
+    watchRef.current = GeoTracker.startRecording(
+      fix => {
+        stRef.current = recorderStep(stRef.current, fix);
         setMeters(stRef.current.meters);
       },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 1000 }
+      kind => { if (kind === 'denied') onToast('Location access is off — turn it on to record your route.'); }
     );
     timerRef.current = setInterval(() => {
       setElapsed(Math.round((Date.now() - startRef.current.getTime()) / 1000));
@@ -1757,7 +1833,7 @@ function RecordRun({ onClose, onSaved, onToast }) {
   };
 
   const stop = () => {
-    if (watchRef.current != null) { navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; }
+    if (watchRef.current != null) { GeoTracker.stopRecording(watchRef.current); watchRef.current = null; }
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     const hour = startRef.current.getHours();
     const tod = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
@@ -1766,7 +1842,7 @@ function RecordRun({ onClose, onSaved, onToast }) {
   };
 
   useEffect(() => () => { // cleanup if component unmounts mid-recording
-    if (watchRef.current != null) navigator.geolocation.clearWatch(watchRef.current);
+    if (watchRef.current != null) GeoTracker.stopRecording(watchRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
   }, []);
 

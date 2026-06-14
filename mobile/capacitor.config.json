@@ -11,7 +11,8 @@
     "backgroundColor": "#080B12"
   },
   "android": {
-    "backgroundColor": "#080B12"
+    "backgroundColor": "#080B12",
+    "useLegacyBridge": true
   },
   "plugins": {
     "SplashScreen": {

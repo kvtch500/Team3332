@@ -71,26 +71,50 @@ You should see the TEAM 3332 login screen. Log in and smoke-test: dashboard, rec
 
 ---
 
-## STEP 3 — Background GPS (the hard session — do this as its own focused pass)
+## STEP 3 — Background GPS — ✅ CODE DONE, finish on the Mac
 
-The web app records with `navigator.geolocation.watchPosition` (see `../app/index.html`
-~line 1742) plus a screen Wake Lock. That **stops when the phone locks or the app
-backgrounds** — unacceptable for a run tracker. Swap in a native background-geolocation plugin.
+**The app wiring is complete (committed June 14).** The free/community plugin
+`@capacitor-community/background-geolocation` (v1.x — the Capacitor 6 line) is now a
+dependency in `package.json`, and `../app/index.html` has a **`GeoTracker`** helper that:
+- uses the background plugin for the recording watch on native (keeps tracking on the lock
+  screen / in the background), and `@capacitor/geolocation` for the foreground "GPS ready"
+  preview;
+- **falls back to `navigator.geolocation`** unchanged in a plain browser — so the website
+  (team3332.com) behaves exactly as before;
+- normalizes every fix to `{lat, lon, accuracy, t}`, feeding the same `recorderStep`
+  distance/route logic the web recorder already used.
 
-Pick ONE plugin:
-- **Free / community:** `@capacitor-community/background-geolocation` — good enough to start.
-- **Production-grade (recommended for a real fitness app):** `@transistorsoft/capacitor-background-geolocation`
-  — paid license, but by far the most reliable for lock-screen tracking, battery, and motion
-  detection. Worth it before launch.
+Start is triggered on "Start run", stop on "Save/Discard" and on unmount. On native the
+plugin requests **Always** permission at Start (preview already asked for When-in-use), and
+shows the required foreground notification while recording.
 
-Then make these iOS edits (after `npx cap add ios`) — see `ios-Info.plist-additions.xml`:
+### What's left — Mac-only steps (Claude's sandbox can't run these):
+
+```bash
+cd "path/to/3332/mobile"
+npm install                         # pulls in @capacitor-community/background-geolocation
+npm run sync                        # = sync:www + cap sync  (copies app/ -> www/, syncs plugins)
+```
+
+Then add the location keys to **`ios/App/App/Info.plist`** (copy from
+`ios-Info.plist-additions.xml`) — required or iOS silently denies background location:
 - `NSLocationWhenInUseUsageDescription`
 - `NSLocationAlwaysAndWhenInUseUsageDescription`
-- `UIBackgroundModes` → `location` (and `processing`/`fetch` if the chosen plugin needs them)
+- `UIBackgroundModes` → `location`
 
-Wire the plugin to start on "Start run" and stop on "Save/Discard", feeding the same
-distance/route logic the web recorder already uses. **This is a dedicated build session —
-not part of today's scaffold.**
+Re-run `npx cap sync ios`, then `npx cap run ios`. **Test:** start a run, lock the phone /
+send the app to the background, walk ~100m, return — the distance/route should have kept
+growing. (The simulator can feign movement via *Features → Location → City Run/Freeway Drive*.)
+
+> **Android note:** `useLegacyBridge: true` is already set in `capacitor.config.json` (stops
+> updates halting after 5 min in the background). Android 13+ also needs the
+> `POST_NOTIFICATIONS` runtime permission for the tracking notification — handle when Android
+> work begins (iOS-first for now).
+
+> **Upgrade path:** to move to the production-grade `@transistorsoft/capacitor-background-geolocation`
+> (paid license, most reliable for a real fitness app), install it and change the single
+> `registerPlugin('BackgroundGeolocation')` call in `GeoTracker`. The rest of the recorder is
+> plugin-agnostic.
 
 ---
 
