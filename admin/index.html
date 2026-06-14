@@ -157,6 +157,8 @@ let members = [], memberTotal = 0, memberOffset = 0;
 let activities = [];
 let groupRuns = [], runsLoaded = false;
 let applications = [], appsLoaded = false;
+let announcements = [], announcementsLoaded = false;
+let nominations = { tally: [], detail: [], month: '' }, nominationsLoaded = false;
 let stats = {};
 let search = '', filterTier = '', filterPace = '';
 let toast = null, toastTimer = null;
@@ -200,6 +202,8 @@ function renderShell() {
     { id: 'members',    icon: '👥', label: 'Members' },
     { id: 'runs',       icon: '🗓️', label: 'Group Runs' },
     { id: 'captains',   icon: '🎖️', label: 'Captain Apps' },
+    { id: 'announcements', icon: '📣', label: 'Announcements' },
+    { id: 'nominations',   icon: '🏅', label: 'Nominations' },
     { id: 'activity',   icon: '🏃', label: 'Activity Feed' },
   ];
 
@@ -223,6 +227,8 @@ function renderShell() {
         ${page === 'members'   ? renderMembers()   : ''}
         ${page === 'runs'      ? renderRuns()      : ''}
         ${page === 'captains'  ? renderCaptainApps() : ''}
+        ${page === 'announcements' ? renderAnnouncements() : ''}
+        ${page === 'nominations'   ? renderNominations()   : ''}
         ${page === 'activity'  ? renderActivity()  : ''}
       </main>
     </div>
@@ -479,6 +485,71 @@ function renderCaptainApps() {
   `;
 }
 
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function renderAnnouncements() {
+  return `
+    <div class="page-header"><div class="page-title">📣 Team Announcements</div></div>
+    <div class="page-body">
+      <div class="card">
+        <div class="card-header"><div class="card-title">All Announcements ${announcements.length ? `<span class="badge badge-gold" style="margin-left:8px">${announcements.length}</span>` : ''}</div></div>
+        ${!announcementsLoaded ? '<div class="loading-wrap"><div class="spinner"></div></div>' :
+          announcements.length === 0 ? '<div class="empty">No announcements posted yet.</div>' :
+          announcements.map(a => `
+            <div class="feed-item" style="align-items:flex-start">
+              <div class="feed-icon">📣</div>
+              <div style="flex:1">
+                <div class="feed-name">${esc(a.title)}</div>
+                <div class="feed-meta" style="white-space:pre-wrap;margin:4px 0">${esc(a.body)}</div>
+                <div class="feed-meta">— ${esc(a.captain_name)} · ${a.created_at ? a.created_at.slice(0,16).replace('T',' ') : ''}</div>
+              </div>
+              <button class="btn btn-sm" style="border-color:var(--red);color:var(--red)" data-announcement-delete="${a.id}" data-title="${esc(a.title)}">Remove</button>
+            </div>
+          `).join('')
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderNominations() {
+  const t = nominations;
+  return `
+    <div class="page-header"><div class="page-title">🏅 Member of the Month — Nominations</div></div>
+    <div class="page-body">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Tally ${t.month ? `<span class="badge badge-gold" style="margin-left:8px">${t.month}</span>` : ''}</div></div>
+        ${!nominationsLoaded ? '<div class="loading-wrap"><div class="spinner"></div></div>' :
+          t.tally.length === 0 ? '<div class="empty">No nominations this month yet.</div>' : `
+          <table>
+            <thead><tr><th>#</th><th>Member</th><th>Pace</th><th>Nominations</th></tr></thead>
+            <tbody>${t.tally.map((n,i) => `
+              <tr><td>${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td><td>${esc(n.nominee_name)}</td><td>${esc(n.nominee_pace_group)}</td><td><strong>${n.nomination_count}</strong></td></tr>
+            `).join('')}</tbody>
+          </table>`
+        }
+      </div>
+      ${nominationsLoaded && t.detail.length > 0 ? `
+      <div class="card">
+        <div class="card-header"><div class="card-title">Every Nomination</div></div>
+        ${t.detail.map(d => `
+          <div class="feed-item" style="align-items:flex-start">
+            <div class="feed-icon">🏅</div>
+            <div style="flex:1">
+              <div class="feed-name">${esc(d.nominee_name)} <span class="feed-meta" style="font-weight:400">nominated by ${esc(d.captain_name)}</span></div>
+              <div class="feed-meta" style="white-space:pre-wrap;margin-top:4px">${esc(d.reason)}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>` : ''}
+    </div>
+  `;
+}
+
 function renderActivity() {
   return `
     <div class="page-header"><div class="page-title">🏃 Activity Feed</div></div>
@@ -554,6 +625,19 @@ function bindEvents() {
         await apiFetch(`/captain-applications/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
         showToast(status === 'approved' ? `✅ ${name} approved — now a Captain` : `🚫 ${name}'s application rejected`);
         loadApplications();
+      } catch(e) { showToast('❌ ' + e.message, 'var(--red)'); }
+    });
+  });
+
+  // Announcement moderation
+  document.querySelectorAll('[data-announcement-delete]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const { announcementDelete: id, title } = btn.dataset;
+      if (!confirm(`Remove announcement "${title}"?`)) return;
+      try {
+        await apiFetch(`/announcements/${id}`, { method: 'DELETE' });
+        showToast('🗑 Announcement removed');
+        loadAnnouncements();
       } catch(e) { showToast('❌ ' + e.message, 'var(--red)'); }
     });
   });
@@ -637,11 +721,31 @@ async function loadApplications() {
   } catch(e) { console.error(e); }
 }
 
+async function loadAnnouncements() {
+  try {
+    const data = await apiFetch('/announcements');
+    announcements = data.announcements;
+    announcementsLoaded = true;
+    render();
+  } catch(e) { console.error(e); }
+}
+
+async function loadNominations() {
+  try {
+    const data = await apiFetch('/nominations');
+    nominations = { tally: data.tally || [], detail: data.detail || [], month: data.month || '' };
+    nominationsLoaded = true;
+    render();
+  } catch(e) { console.error(e); }
+}
+
 function loadPageData() {
   if (page === 'overview') loadStats();
   if (page === 'members')  loadMembers();
   if (page === 'runs')     loadRuns();
   if (page === 'captains') loadApplications();
+  if (page === 'announcements') loadAnnouncements();
+  if (page === 'nominations')   loadNominations();
   if (page === 'activity') loadActivities();
   render();
 }

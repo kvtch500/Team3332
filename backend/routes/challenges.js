@@ -100,7 +100,7 @@ router.post('/', requireAuth, requireCaptain, (req, res) => {
   const info = db.prepare(`
     INSERT INTO challenges (title, description, icon, type, sport, goal_value, reward, tier_req, starts_at, ends_at, created_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(title, description, icon || '🏅', type, sportVal, goal_value, reward, tier_req || null, starts_at, ends_at, req.user.id);
+  `).run(title, description ?? null, icon || '🏅', type, sportVal, goal_value, reward ?? null, tier_req || null, starts_at, ends_at, req.user.id);
 
   const challenge = db.prepare('SELECT * FROM challenges WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json({ challenge });

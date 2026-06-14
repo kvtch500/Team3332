@@ -146,6 +146,26 @@ const schema = `
     answered_at TEXT
   );
 
+  -- ── TEAM ANNOUNCEMENTS (captain → all members) ─────
+  CREATE TABLE IF NOT EXISTS announcements (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    captain_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title       TEXT    NOT NULL,
+    body        TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- ── MEMBER-OF-THE-MONTH NOMINATIONS (captain → member) ─
+  CREATE TABLE IF NOT EXISTS nominations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    captain_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    nominee_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    month       TEXT    NOT NULL,                              -- 'YYYY-MM'
+    reason      TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(captain_id, nominee_id, month)
+  );
+
   -- ── PASSWORD RESETS ────────────────────────────────
   CREATE TABLE IF NOT EXISTS password_resets (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,6 +187,9 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_captain_apps_status ON captain_applications(status);
   CREATE INDEX IF NOT EXISTS idx_captain_questions_captain ON captain_questions(captain_id);
   CREATE INDEX IF NOT EXISTS idx_captain_questions_member ON captain_questions(member_id);
+  CREATE INDEX IF NOT EXISTS idx_announcements_created ON announcements(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_nominations_month ON nominations(month);
+  CREATE INDEX IF NOT EXISTS idx_nominations_nominee ON nominations(nominee_id);
 `;
 // NOTE: idx_users_club is created in db/index.js AFTER the club_id auto-migration —
 // putting it here breaks boot on existing databases that don't have the column yet.

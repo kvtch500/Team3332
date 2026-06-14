@@ -27,6 +27,8 @@ router.get('/stats', requireAdmin, (req, res) => {
   const pendingClubs = db.prepare(`SELECT COUNT(*) as total FROM clubs WHERE status = 'pending'`).get();
   const pendingRuns  = db.prepare(`SELECT COUNT(*) as total FROM group_runs WHERE approval_status = 'pending'`).get();
   const pendingApps  = db.prepare(`SELECT COUNT(*) as total FROM captain_applications WHERE status = 'pending'`).get();
+  const announcements = db.prepare(`SELECT COUNT(*) as total FROM announcements`).get();
+  const monthNoms    = db.prepare(`SELECT COUNT(*) as total FROM nominations WHERE month = ?`).get(new Date().toISOString().slice(0, 7));
 
   res.json({
     total_members:   members.total,
@@ -40,6 +42,8 @@ router.get('/stats', requireAdmin, (req, res) => {
     pending_clubs:   pendingClubs.total,
     pending_runs:    pendingRuns.total,
     pending_applications: pendingApps.total,
+    total_announcements: announcements.total,
+    nominations_this_month: monthNoms.total,
   });
 });
 
@@ -230,6 +234,64 @@ router.delete('/members/:id', requireAdmin, (req, res) => {
   const db = getDb();
   db.prepare('UPDATE users SET is_active = 0 WHERE id = ?').run(req.params.id);
   res.json({ message: 'Member deactivated' });
+});
+
+// ── ANNOUNCEMENTS (moderation) ───────────────────────────────
+
+// GET /api/admin/announcements — All announcements with author, newest first
+router.get('/announcements', requireAdmin, (req, res) => {
+  const db = getDb();
+  const announcements = db.prepare(`
+    SELECT a.id, a.title, a.body, a.created_at,
+           u.name AS captain_name, u.email AS captain_email
+    FROM announcements a
+    JOIN users u ON u.id = a.captain_id
+    ORDER BY a.created_at DESC, a.id DESC
+  `).all();
+  res.json({ announcements });
+});
+
+// DELETE /api/admin/announcements/:id — Admin removes any announcement
+router.delete('/announcements/:id', requireAdmin, (req, res) => {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM announcements WHERE id = ?').run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Announcement not found' });
+  res.json({ message: 'Announcement removed' });
+});
+
+// ── NOMINATIONS (Member-of-the-Month tally) ──────────────────
+
+// GET /api/admin/nominations?month=YYYY-MM — Tally for a month (default: current)
+router.get('/nominations', requireAdmin, (req, res) => {
+  const db = getDb();
+  const month = /^\d{4}-\d{2}$/.test(req.query.month || '')
+    ? req.query.month
+    : new Date().toISOString().slice(0, 7);
+
+  // Leaderboard: nominees ranked by number of nominations this month
+  const tally = db.prepare(`
+    SELECT u.id AS nominee_id, u.name AS nominee_name, u.pace_group AS nominee_pace_group,
+           COUNT(*) AS nomination_count
+    FROM nominations n
+    JOIN users u ON u.id = n.nominee_id
+    WHERE n.month = ?
+    GROUP BY n.nominee_id
+    ORDER BY nomination_count DESC, u.name ASC
+  `).all(month);
+
+  // Full detail: every nomination with who nominated whom and why
+  const detail = db.prepare(`
+    SELECT n.id, n.reason, n.created_at,
+           nominee.name AS nominee_name,
+           captain.name AS captain_name
+    FROM nominations n
+    JOIN users nominee ON nominee.id = n.nominee_id
+    JOIN users captain ON captain.id = n.captain_id
+    WHERE n.month = ?
+    ORDER BY n.created_at DESC, n.id DESC
+  `).all(month);
+
+  res.json({ month, tally, detail });
 });
 
 module.exports = router;

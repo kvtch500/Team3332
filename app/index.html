@@ -1414,6 +1414,7 @@ function Dashboard({ user }) {
   const [activities, setActs]   = useState([]);
   const [challenges, setChallenges] = useState([]);
   const [leaderboard, setLb]    = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading]   = useState(true);
 
   useEffect(() => {
@@ -1422,11 +1423,13 @@ function Dashboard({ user }) {
       api.get('/activities?limit=3'),
       api.get('/challenges'),
       api.get('/leaderboard?period=monthly&limit=5'),
-    ]).then(([s, a, c, lb]) => {
+      api.get('/captain/announcements?limit=5').catch(() => ({ announcements: [] })),
+    ]).then(([s, a, c, lb, an]) => {
       setStats(s);
       setActs(a.activities || []);
       setChallenges((c.challenges || []).filter(x => x.joined));
       setLb(lb.leaderboard || []);
+      setAnnouncements(an.announcements || []);
     }).catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -1460,6 +1463,23 @@ function Dashboard({ user }) {
             </div>
           ))}
         </div>
+
+        {/* Team Announcements (from captains) */}
+        {announcements.length > 0 && (
+          <div className="card mb-24">
+            <div className="card-title">📣 Team Announcements</div>
+            {announcements.map(an => (
+              <div key={an.id} style={{padding:'10px 0',borderBottom:'1px solid var(--border)'}}>
+                <div className="flex items-center justify-between mb-4">
+                  <div style={{fontWeight:600,fontSize:'0.88rem'}}>{an.title}</div>
+                  <span style={{fontSize:'0.72rem',color:'var(--gray)'}}>{formatDate(an.created_at)}</span>
+                </div>
+                <div style={{fontSize:'0.83rem',color:'var(--gray)',whiteSpace:'pre-wrap'}}>{an.body}</div>
+                <div style={{fontSize:'0.72rem',color:'var(--blue)',marginTop:4}}>— {an.captain_name}, Captain</div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="grid-2 mb-24" style={{gap:20}}>
           {/* Recent Activity */}
@@ -1975,13 +1995,14 @@ function ActivityLog({ onToast }) {
     try {
       const text = await file.text();
       const { parsed } = await api.postRaw('/activities/parse-gpx', text);
-      setForm({
-        name: parsed.name || 'Imported Run',
+      setForm(f => ({
+        ...f,                                  // keep the selected activity type (Run/Walk)
+        name: parsed.name || `Imported ${f.type || 'Run'}`,
         distance: String(parsed.distance),
         pace: parsed.pace || '',
         duration: parsed.duration || '',
         notes: parsed.elevation_gain > 0 ? `Elevation gain: ${parsed.elevation_gain} ft` : '',
-      });
+      }));
       setGpx({ route_data: parsed.route_data, logged_at: parsed.logged_at });
       onToast(`GPX imported — ${parsed.distance} mi. Review & save.`);
     } catch(err) { onToast(`Import failed: ${err.message}`); }
@@ -2626,6 +2647,174 @@ function AskCaptain({ user, onToast }) {
   );
 }
 
+// Captain Tools — three real tools: propose a challenge, post an announcement,
+// nominate Member of the Month. Each opens a modal backed by a live endpoint.
+function CaptainToolsCard({ onToast }) {
+  const [open, setOpen] = useState(null); // 'challenge' | 'announce' | 'nominate' | null
+  const close = () => setOpen(null);
+
+  const isoDate = (offsetDays = 0) => {
+    const d = new Date(); d.setDate(d.getDate() + offsetDays);
+    return d.toISOString().slice(0, 10);
+  };
+
+  // ── Challenge form ──
+  const [cForm, setCForm] = useState({ title:'', description:'', type:'distance', sport:'Run', goal_value:'', reward:'', starts_at: isoDate(0), ends_at: isoDate(30) });
+  const cSet = (k,v) => setCForm(f=>({...f,[k]:v}));
+  const [cSaving, setCSaving] = useState(false);
+  const submitChallenge = async () => {
+    if (!cForm.title.trim() || !cForm.goal_value) { onToast('Title and goal are required'); return; }
+    setCSaving(true);
+    try {
+      await api.post('/challenges', {
+        title: cForm.title.trim(), description: cForm.description.trim() || null,
+        type: cForm.type, sport: cForm.sport, goal_value: parseFloat(cForm.goal_value),
+        reward: cForm.reward.trim() || null,
+        starts_at: new Date(cForm.starts_at).toISOString(),
+        ends_at: new Date(cForm.ends_at).toISOString(),
+      });
+      onToast('Team challenge created 🏅');
+      setCForm({ title:'', description:'', type:'distance', sport:'Run', goal_value:'', reward:'', starts_at: isoDate(0), ends_at: isoDate(30) });
+      close();
+    } catch(e) { onToast(`Error: ${e.message}`); }
+    finally { setCSaving(false); }
+  };
+
+  // ── Announcement form + my list ──
+  const [aForm, setAForm] = useState({ title:'', body:'' });
+  const [aMine, setAMine] = useState([]);
+  const [aSaving, setASaving] = useState(false);
+  const loadMine = () => api.get('/captain/announcements/mine').then(d=>setAMine(d.announcements||[])).catch(()=>{});
+  useEffect(() => { if (open === 'announce') loadMine(); }, [open]);
+  const submitAnnouncement = async () => {
+    if (!aForm.title.trim() || !aForm.body.trim()) { onToast('Title and message are required'); return; }
+    setASaving(true);
+    try {
+      await api.post('/captain/announcements', { title: aForm.title.trim(), body: aForm.body.trim() });
+      onToast('Announcement posted to the team 📣');
+      setAForm({ title:'', body:'' });
+      loadMine();
+    } catch(e) { onToast(`Error: ${e.message}`); }
+    finally { setASaving(false); }
+  };
+  const deleteAnnouncement = async (id) => {
+    if (!confirm('Delete this announcement?')) return;
+    try { await api.delete(`/captain/announcements/${id}`); onToast('Announcement deleted'); loadMine(); }
+    catch(e) { onToast(`Error: ${e.message}`); }
+  };
+
+  // ── Nomination form ──
+  const [members, setMembers] = useState([]);
+  const [nForm, setNForm] = useState({ nominee_id:'', reason:'' });
+  const [nSaving, setNSaving] = useState(false);
+  useEffect(() => { if (open === 'nominate') api.get('/captain/members').then(d=>setMembers(d.members||[])).catch(()=>{}); }, [open]);
+  const submitNomination = async () => {
+    if (!nForm.nominee_id || !nForm.reason.trim()) { onToast('Pick a member and add a reason'); return; }
+    setNSaving(true);
+    try {
+      await api.post('/captain/nominations', { nominee_id: parseInt(nForm.nominee_id,10), reason: nForm.reason.trim() });
+      onToast('Nomination submitted 🏅');
+      setNForm({ nominee_id:'', reason:'' });
+      close();
+    } catch(e) { onToast(`Error: ${e.message}`); }
+    finally { setNSaving(false); }
+  };
+
+  const tools = [
+    { key:'challenge', icon:'📋', label:'Propose a Team Challenge' },
+    { key:'announce',  icon:'📣', label:'Post Team Announcement' },
+    { key:'nominate',  icon:'🏅', label:'Nominate Member of the Month' },
+  ];
+
+  return (
+    <div className="card">
+      <div className="card-title">Captain Tools</div>
+      {tools.map(t=>(
+        <button key={t.key} className="btn btn-secondary btn-full" style={{marginBottom:8,justifyContent:'flex-start',gap:10}} onClick={()=>setOpen(t.key)}>
+          <span>{t.icon}</span><span>{t.label}</span>
+        </button>
+      ))}
+
+      {open === 'challenge' && (
+        <div className="modal-overlay" onClick={e=>{if(e.target.className==='modal-overlay')close()}}>
+          <div className="modal">
+            <div className="modal-title">📋 Propose a Team Challenge</div>
+            <div className="form-group"><label>Title</label><input type="text" placeholder="e.g. June 100-Mile Club" value={cForm.title} onChange={e=>cSet('title',e.target.value)} /></div>
+            <div className="form-group"><label>Description</label><input type="text" placeholder="What's the challenge?" value={cForm.description} onChange={e=>cSet('description',e.target.value)} /></div>
+            <div className="grid-2" style={{gap:12,marginBottom:16}}>
+              <div className="form-group" style={{marginBottom:0}}><label>Type</label>
+                <select value={cForm.type} onChange={e=>cSet('type',e.target.value)}>
+                  <option value="distance">Distance</option><option value="frequency">Frequency</option><option value="pace">Pace</option><option value="streak">Streak</option>
+                </select>
+              </div>
+              <div className="form-group" style={{marginBottom:0}}><label>Sport</label>
+                <select value={cForm.sport} onChange={e=>cSet('sport',e.target.value)}>
+                  <option value="Run">Run</option><option value="Walk">Walk</option><option value="Any">Any</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid-2" style={{gap:12,marginBottom:16}}>
+              <div className="form-group" style={{marginBottom:0}}><label>Goal value</label><input type="number" placeholder="e.g. 100" step="0.1" value={cForm.goal_value} onChange={e=>cSet('goal_value',e.target.value)} /></div>
+              <div className="form-group" style={{marginBottom:0}}><label>Reward (optional)</label><input type="text" placeholder="e.g. Badge + sticker" value={cForm.reward} onChange={e=>cSet('reward',e.target.value)} /></div>
+            </div>
+            <div className="grid-2" style={{gap:12,marginBottom:16}}>
+              <div className="form-group" style={{marginBottom:0}}><label>Starts</label><input type="date" value={cForm.starts_at} onChange={e=>cSet('starts_at',e.target.value)} /></div>
+              <div className="form-group" style={{marginBottom:0}}><label>Ends</label><input type="date" value={cForm.ends_at} onChange={e=>cSet('ends_at',e.target.value)} /></div>
+            </div>
+            <div className="flex gap-8">
+              <button className="btn btn-ghost btn-full" onClick={close}>Cancel</button>
+              <button className="btn btn-primary btn-full" onClick={submitChallenge} disabled={cSaving}>{cSaving ? <Spinner /> : 'Create Challenge'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {open === 'announce' && (
+        <div className="modal-overlay" onClick={e=>{if(e.target.className==='modal-overlay')close()}}>
+          <div className="modal">
+            <div className="modal-title">📣 Post Team Announcement</div>
+            <div className="form-group"><label>Title</label><input type="text" placeholder="e.g. Saturday long run moved to 7am" value={aForm.title} onChange={e=>setAForm(f=>({...f,title:e.target.value}))} /></div>
+            <div className="form-group"><label>Message</label><textarea rows={4} placeholder="Share the news with the whole team…" value={aForm.body} onChange={e=>setAForm(f=>({...f,body:e.target.value}))} style={{width:'100%',resize:'vertical'}} /></div>
+            <div className="flex gap-8" style={{marginBottom:16}}>
+              <button className="btn btn-ghost btn-full" onClick={close}>Close</button>
+              <button className="btn btn-primary btn-full" onClick={submitAnnouncement} disabled={aSaving}>{aSaving ? <Spinner /> : 'Post to Team'}</button>
+            </div>
+            {aMine.length > 0 && <div className="card-title" style={{fontSize:'0.8rem'}}>Your recent announcements</div>}
+            {aMine.map(a=>(
+              <div key={a.id} className="flex justify-between items-center" style={{padding:'8px 0',borderBottom:'1px solid var(--border)'}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontWeight:600,fontSize:'0.85rem',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{a.title}</div>
+                  <div style={{fontSize:'0.72rem',color:'var(--gray)'}}>{formatDate(a.created_at)}</div>
+                </div>
+                <button className="btn btn-xs btn-ghost" onClick={()=>deleteAnnouncement(a.id)} style={{marginLeft:8}}>🗑</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {open === 'nominate' && (
+        <div className="modal-overlay" onClick={e=>{if(e.target.className==='modal-overlay')close()}}>
+          <div className="modal">
+            <div className="modal-title">🏅 Nominate Member of the Month</div>
+            <div className="form-group"><label>Member</label>
+              <select value={nForm.nominee_id} onChange={e=>setNForm(f=>({...f,nominee_id:e.target.value}))}>
+                <option value="">Choose a member…</option>
+                {members.map(m=> <option key={m.id} value={m.id}>{m.name} (Pace {m.pace_group})</option>)}
+              </select>
+            </div>
+            <div className="form-group"><label>Why are they your pick?</label><textarea rows={4} placeholder="What makes them stand out this month?" value={nForm.reason} onChange={e=>setNForm(f=>({...f,reason:e.target.value}))} style={{width:'100%',resize:'vertical'}} /></div>
+            <div className="flex gap-8">
+              <button className="btn btn-ghost btn-full" onClick={close}>Cancel</button>
+              <button className="btn btn-primary btn-full" onClick={submitNomination} disabled={nSaving}>{nSaving ? <Spinner /> : 'Submit Nomination'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CaptainPanel({ user, onToast }) {
   const [myRuns, setMyRuns]   = useState([]);
   const [captStats, setCaptStats] = useState(null);
@@ -2727,18 +2916,7 @@ function CaptainPanel({ user, onToast }) {
 
           <div style={{display:'flex',flexDirection:'column',gap:16}}>
             <CaptainInbox onToast={onToast} />
-            <div className="card">
-              <div className="card-title">Captain Tools</div>
-              {[
-                {icon:'📋',label:'Propose a Team Challenge',action:'Challenge proposal submitted'},
-                {icon:'📣',label:'Post Team Announcement',action:'Announcement posted'},
-                {icon:'🏅',label:'Nominate Member of the Month',action:'Nomination submitted'},
-              ].map((t,i)=>(
-                <button key={i} className="btn btn-secondary btn-full" style={{marginBottom:8,justifyContent:'flex-start',gap:10}} onClick={()=>onToast(`${t.action} ✓`)}>
-                  <span>{t.icon}</span><span>{t.label}</span>
-                </button>
-              ))}
-            </div>
+            <CaptainToolsCard onToast={onToast} />
             <div className="card">
               <div className="card-title">Captain Perks</div>
               {['Exclusive captain-only apparel','Deeper gear & race discounts','Priority partner access','Monthly captain meetup invite'].map((p,i)=>(

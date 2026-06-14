@@ -262,4 +262,111 @@ router.post('/questions/:id/answer', requireAuth, requireCaptain, (req, res) => 
   res.json({ question: db.prepare('SELECT * FROM captain_questions WHERE id = ?').get(req.params.id) });
 });
 
+// ── TEAM ANNOUNCEMENTS ───────────────────────────────────────
+
+// GET /api/captain/announcements — Team feed: recent announcements (all members)
+router.get('/announcements', requireAuth, (req, res) => {
+  const db = getDb();
+  const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+  const announcements = db.prepare(
+    `SELECT a.id, a.title, a.body, a.created_at, a.captain_id,
+            u.name AS captain_name
+     FROM announcements a
+     JOIN users u ON u.id = a.captain_id
+     ORDER BY a.created_at DESC, a.id DESC
+     LIMIT ?`
+  ).all(limit);
+  res.json({ announcements });
+});
+
+// GET /api/captain/announcements/mine — Captain's own posted announcements
+router.get('/announcements/mine', requireAuth, requireCaptain, (req, res) => {
+  const db = getDb();
+  const announcements = db.prepare(
+    `SELECT id, title, body, created_at FROM announcements
+     WHERE captain_id = ? ORDER BY created_at DESC, id DESC`
+  ).all(req.user.id);
+  res.json({ announcements });
+});
+
+// POST /api/captain/announcements — Captain posts a team announcement
+router.post('/announcements', requireAuth, requireCaptain, (req, res) => {
+  const db = getDb();
+  const title = (req.body.title || '').trim();
+  const body  = (req.body.body  || '').trim();
+  if (!title || !body) return res.status(400).json({ error: 'title and body are required' });
+  if (title.length > 120) return res.status(400).json({ error: 'title must be 120 characters or fewer' });
+
+  const info = db.prepare(
+    `INSERT INTO announcements (captain_id, title, body) VALUES (?, ?, ?)`
+  ).run(req.user.id, title, body);
+
+  const announcement = db.prepare('SELECT * FROM announcements WHERE id = ?').get(info.lastInsertRowid);
+  res.status(201).json({ announcement, message: 'Announcement posted to the team.' });
+});
+
+// DELETE /api/captain/announcements/:id — Captain deletes their own announcement
+router.delete('/announcements/:id', requireAuth, requireCaptain, (req, res) => {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM announcements WHERE id = ? AND captain_id = ?')
+    .run(req.params.id, req.user.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Announcement not found' });
+  res.json({ message: 'Announcement deleted' });
+});
+
+// ── MEMBER-OF-THE-MONTH NOMINATIONS ──────────────────────────
+
+// GET /api/captain/members — Active members a captain can nominate (excludes self)
+router.get('/members', requireAuth, requireCaptain, (req, res) => {
+  const db = getDb();
+  const members = db.prepare(
+    `SELECT id, name, pace_group FROM users
+     WHERE is_active = 1 AND id != ? ORDER BY name ASC`
+  ).all(req.user.id);
+  res.json({ members });
+});
+
+// GET /api/captain/nominations/mine — Captain's own nominations (most recent first)
+router.get('/nominations/mine', requireAuth, requireCaptain, (req, res) => {
+  const db = getDb();
+  const nominations = db.prepare(
+    `SELECT n.id, n.month, n.reason, n.created_at,
+            u.name AS nominee_name, u.pace_group AS nominee_pace_group
+     FROM nominations n
+     JOIN users u ON u.id = n.nominee_id
+     WHERE n.captain_id = ?
+     ORDER BY n.created_at DESC, n.id DESC`
+  ).all(req.user.id);
+  res.json({ nominations });
+});
+
+// POST /api/captain/nominations — Captain nominates a member for the month
+router.post('/nominations', requireAuth, requireCaptain, (req, res) => {
+  const db = getDb();
+  const nomineeId = parseInt(req.body.nominee_id, 10);
+  const reason    = (req.body.reason || '').trim();
+  // month defaults to the current calendar month (UTC) in 'YYYY-MM'
+  const month = /^\d{4}-\d{2}$/.test(req.body.month || '')
+    ? req.body.month
+    : new Date().toISOString().slice(0, 7);
+
+  if (!nomineeId || !reason) return res.status(400).json({ error: 'nominee_id and reason are required' });
+  if (nomineeId === req.user.id) return res.status(400).json({ error: 'You cannot nominate yourself' });
+
+  const nominee = db.prepare('SELECT id FROM users WHERE id = ? AND is_active = 1').get(nomineeId);
+  if (!nominee) return res.status(404).json({ error: 'Member not found' });
+
+  const dup = db.prepare(
+    `SELECT id FROM nominations WHERE captain_id = ? AND nominee_id = ? AND month = ?`
+  ).get(req.user.id, nomineeId, month);
+  if (dup) return res.status(409).json({ error: 'You already nominated this member this month' });
+
+  const info = db.prepare(
+    `INSERT INTO nominations (captain_id, nominee_id, month, reason) VALUES (?, ?, ?, ?)`
+  ).run(req.user.id, nomineeId, month, reason);
+
+  const nomination = db.prepare('SELECT * FROM nominations WHERE id = ?').get(info.lastInsertRowid);
+  res.status(201).json({ nomination, message: 'Nomination submitted.' });
+});
+
 module.exports = router;
