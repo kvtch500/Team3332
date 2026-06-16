@@ -97,7 +97,7 @@ router.post('/', requireAuth, (req, res) => {
   const info = db.prepare(`
     INSERT INTO activities (user_id, name, type, distance, pace, duration, calories, notes, route_data, logged_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
-  `).run(req.user.id, name, type, distance, pace, duration, calories || Math.round(distance * 82), notes, route_data, logged_at);
+  `).run(req.user.id, name, type, distance, pace ?? null, duration ?? null, calories || Math.round(distance * 82), notes ?? null, route_data ?? null, logged_at ?? null);
 
   // Auto-update challenge progress
   updateChallengeProgress(db, req.user.id, { distance, pace, type });

@@ -95,7 +95,7 @@ router.patch('/me', requireAuth, (req, res) => {
     location = COALESCE(?, location), pace_group = COALESCE(?, pace_group),
     country = COALESCE(?, country), state = COALESCE(?, state), city = COALESCE(?, city),
     updated_at = datetime('now') WHERE id = ?
-  `).run(name, bio, location, pace_group, country, state, city, req.user.id);
+  `).run(name ?? null, bio ?? null, location ?? null, pace_group ?? null, country ?? null, state ?? null, city ?? null, req.user.id);
 
   const user = getUserWithClub(db, req.user.id);
   res.json({ user: safeUser(user) });
