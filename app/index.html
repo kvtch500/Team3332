@@ -833,7 +833,13 @@
   </style>
 </head>
 <body>
-<div id="root"></div>
+<style>@keyframes bootspin{to{transform:rotate(360deg)}}</style>
+<div id="root">
+  <div id="boot-status" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#080B12;color:#8A9BB5;font-family:Barlow,system-ui,sans-serif">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:2rem;letter-spacing:1px;color:#F0F4FF">TEAM <span style="color:#D4AF37">3332</span></div>
+    <div style="width:28px;height:28px;border:3px solid #1E2D45;border-top-color:#D4AF37;border-radius:50%;animation:bootspin 0.8s linear infinite"></div>
+  </div>
+</div>
 
 <script type="text/babel">
 const { useState, useEffect, useContext, createContext, useCallback, useRef } = React;
@@ -3291,6 +3297,28 @@ function App() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+<script>
+/* Boot watchdog — plain JS so it runs even if React/Babel fail to load.
+   If the app hasn't mounted (boot-status placeholder still present) 8s after
+   load, show a friendly message + Reload instead of a silent black screen. */
+(function(){
+  function showError(msg){
+    var r=document.getElementById('root');
+    if(!r)return;
+    r.innerHTML='<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;font-family:Barlow,system-ui,sans-serif;background:#080B12;color:#F0F4FF"><div style="max-width:340px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-weight:900;font-size:2rem;letter-spacing:1px;margin-bottom:14px">TEAM <span style="color:#D4AF37">3332</span></div><div style="font-size:0.95rem;line-height:1.55;color:#8A9BB5;margin-bottom:22px">'+msg+'</div><button onclick="location.reload()" style="background:#D4AF37;color:#080B12;border:none;border-radius:10px;padding:12px 26px;font-weight:700;font-size:0.95rem;cursor:pointer">Reload</button></div></div>';
+  }
+  window.addEventListener('load',function(){
+    setTimeout(function(){
+      if(!document.getElementById('boot-status'))return; /* app mounted — nothing to do */
+      var offline=(typeof navigator!=='undefined'&&navigator.onLine===false);
+      var missing=(!window.React||!window.ReactDOM||!window.Babel);
+      showError((offline||missing)
+        ? 'We couldn’t load the app — please check your internet connection and reload.'
+        : 'The app didn’t load correctly. Please reload; if it keeps happening, try again shortly.');
+    },8000);
+  });
+})();
 </script>
 </body>
 </html>
