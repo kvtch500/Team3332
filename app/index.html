@@ -667,6 +667,9 @@
     }
     .bottom-nav-item.bnav-record:active .bnav-record-circle { transform: scale(0.93); }
 
+    .bnav-svg { width: 23px; height: 23px; display: block; }
+    .bnav-record-circle .bnav-svg { width: 22px; height: 22px; margin-left: 2px; }
+
     .sidebar-overlay {
       display: none;
       position: fixed;
@@ -3251,10 +3254,18 @@ function App() {
   // Bottom nav: 4 tabs flanking a raised center Record button.
   // Goals (challenges) lives in the sidebar menu. Order: Home · Runs · ⊙Record · Board · Me
   const bottomNavItems = [
-    { id:'dashboard',   icon:'🏠', label:'Home' },
-    { id:'activity',    icon:'🏃', label:'Runs' },
-    { id:'leaderboard', icon:'🏆', label:'Board' },
-    { id:'profile',     icon:'👤', label:'Me' },
+    { id:'dashboard', label:'Home', icon:(
+      <svg className="bnav-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3 2 11h3v9h6v-6h2v6h6v-9h3z"/></svg>
+    )},
+    { id:'activity', label:'Runs', icon:(
+      <svg className="bnav-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.5 14.5c.5-2 1.8-3.7 3.7-4.6l.9 1.7 2-1 .9 1.7 2-1c.6-.3 1.3-.2 1.9.1l4.8 3c1.1.7 1.8 1.8 1.9 3.1 0 .8-.6 1.5-1.4 1.5H3.4c-.8 0-1.4-.7-1.4-1.5 0-1 .2-2 .5-3z"/></svg>
+    )},
+    { id:'leaderboard', label:'Board', icon:(
+      <svg className="bnav-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26z"/></svg>
+    )},
+    { id:'profile', label:'Me', icon:(
+      <svg className="bnav-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5z"/></svg>
+    )},
   ];
 
   return (
@@ -3312,7 +3323,7 @@ function App() {
             </button>
           ))}
           <button className="bottom-nav-item bnav-record" onClick={()=>setShowRecord(true)} aria-label="Record a run or walk">
-            <span className="bnav-record-circle">▶</span>
+            <span className="bnav-record-circle"><svg className="bnav-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></span>
             Record
           </button>
           {bottomNavItems.slice(2).map(n=>(
