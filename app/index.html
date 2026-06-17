@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TEAM 3332 App</title>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
+  <!-- Leaflet (version-pinned; do NOT use @latest — see the Babel 8 black-screen outage, handoff617) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js"></script>
@@ -44,6 +47,25 @@
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: var(--dark); }
     ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+    /* ── LIVE ROUTE MAP (recorder) ── */
+    .live-map { position: absolute; inset: 0; background: var(--dark); z-index: 0; }
+    .live-map .leaflet-container { width: 100%; height: 100%; background: var(--dark); font-family: 'Barlow', sans-serif; }
+    /* Mute the map so the gold route + overlaid stats stay readable */
+    .live-map .leaflet-tile { filter: grayscale(0.55) brightness(0.62) contrast(1.05); }
+    .live-map .leaflet-control-attribution {
+      background: rgba(11,15,20,0.6); color: var(--gray); font-size: 9px; }
+    .live-map .leaflet-control-attribution a { color: var(--light); }
+    .live-map-scrim { position: absolute; inset: 0; z-index: 1; pointer-events: none;
+      background: linear-gradient(180deg, rgba(8,11,18,0.55) 0%, rgba(8,11,18,0.05) 28%, rgba(8,11,18,0.20) 60%, rgba(8,11,18,0.92) 100%); }
+    .live-map-wait { position: absolute; inset: 0; z-index: 2; display: flex; align-items: center;
+      justify-content: center; color: var(--gray); font-size: 0.85rem; text-align: center; padding: 24px; }
+    .route-mini { height: 200px; border-radius: 16px; overflow: hidden; border: 1px solid var(--border);
+      margin-bottom: 20px; background: var(--dark); }
+    .route-mini .leaflet-container { width: 100%; height: 100%; background: var(--dark); }
+    .route-mini .leaflet-tile { filter: grayscale(0.55) brightness(0.62) contrast(1.05); }
+    .route-mini .leaflet-control-attribution { background: rgba(11,15,20,0.6); color: var(--gray); font-size: 9px; }
+    .route-mini .leaflet-control-attribution a { color: var(--light); }
 
     /* ── AUTH ── */
     .auth-wrapper {
@@ -1834,6 +1856,101 @@ const GeoTracker = (() => {
   return { isNative, startPreview, stopPreview, startRecording, stopRecording };
 })();
 
+/* ── Live route map (Leaflet) shown behind the recorder stats ──────────────
+   Imperative wrapper: React owns the container; Leaflet owns the canvas.
+   `points` is the recorder's growing [[lat,lon],…] array; a fresh array
+   reference arrives on every accepted GPS fix, so the update effect re-runs.
+   Degrades silently to a dark panel if Leaflet (window.L) failed to load. */
+function LiveRouteMap({ points }) {
+  const elRef    = useRef(null);
+  const mapRef   = useRef(null);
+  const lineRef  = useRef(null);
+  const startRef = useRef(null);
+  const headRef  = useRef(null);
+
+  // Init once, when the recording view mounts.
+  useEffect(() => {
+    if (!window.L || !elRef.current) return;
+    const map = L.map(elRef.current, {
+      zoomControl: false, attributionControl: true,
+      dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
+      touchZoom: false, boxZoom: false, keyboard: false, tap: false,
+    }).setView([39.5, -98.35], 4); // continental US until first fix
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '© OpenStreetMap',
+    }).addTo(map);
+    lineRef.current = L.polyline([], {
+      color: '#D4AF37', weight: 5, opacity: 0.95, lineCap: 'round', lineJoin: 'round',
+    }).addTo(map);
+    mapRef.current = map;
+    // Container starts at full size only after the overlay paints.
+    const t = setTimeout(() => map.invalidateSize(), 80);
+    return () => { clearTimeout(t); map.remove(); mapRef.current = null; lineRef.current = null; startRef.current = null; headRef.current = null; };
+  }, []);
+
+  // Redraw on every points change.
+  useEffect(() => {
+    const map = mapRef.current, line = lineRef.current;
+    if (!map || !line || !points || points.length === 0) return;
+    line.setLatLngs(points);
+    const last = points[points.length - 1];
+    if (!startRef.current) {
+      startRef.current = L.circleMarker(points[0], {
+        radius: 6, color: '#fff', weight: 2, fillColor: '#4caf50', fillOpacity: 1,
+      }).addTo(map);
+    }
+    if (!headRef.current) {
+      headRef.current = L.circleMarker(last, {
+        radius: 7, color: '#fff', weight: 2, fillColor: '#D4AF37', fillOpacity: 1,
+      }).addTo(map);
+      map.setView(last, 17, { animate: false }); // snap-zoom on first fix
+    } else {
+      headRef.current.setLatLng(last);
+      map.panTo(last, { animate: true, duration: 0.6 }); // follow the runner
+    }
+  }, [points]);
+
+  return (
+    <div className="live-map">
+      <div ref={elRef} style={{ width: '100%', height: '100%' }} />
+      {(!window.L) && <div className="live-map-wait">Map unavailable — your route is still being recorded.</div>}
+      {window.L && (!points || points.length === 0) &&
+        <div className="live-map-wait">📡 Waiting for GPS lock — your route will draw here.</div>}
+      <div className="live-map-scrim" />
+    </div>
+  );
+}
+
+/* ── Static route preview (Leaflet) for the post-run review screen ──────────
+   Fits the whole recorded route in view with start (green) + finish (red)
+   markers. No following, no interaction. Renders nothing if Leaflet is
+   missing or there are fewer than 2 points. */
+function RouteMiniMap({ points }) {
+  const elRef  = useRef(null);
+  const mapRef = useRef(null);
+  useEffect(() => {
+    if (!window.L || !elRef.current || !points || points.length < 2) return;
+    const map = L.map(elRef.current, {
+      zoomControl: false, attributionControl: true,
+      dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
+      touchZoom: false, boxZoom: false, keyboard: false, tap: false,
+    });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '© OpenStreetMap',
+    }).addTo(map);
+    const line = L.polyline(points, {
+      color: '#D4AF37', weight: 5, opacity: 0.95, lineCap: 'round', lineJoin: 'round',
+    }).addTo(map);
+    L.circleMarker(points[0], { radius: 6, color: '#fff', weight: 2, fillColor: '#4caf50', fillOpacity: 1 }).addTo(map);
+    L.circleMarker(points[points.length - 1], { radius: 6, color: '#fff', weight: 2, fillColor: '#e74c3c', fillOpacity: 1 }).addTo(map);
+    mapRef.current = map;
+    const t = setTimeout(() => { map.invalidateSize(); map.fitBounds(line.getBounds(), { padding: [24, 24], maxZoom: 17 }); }, 80);
+    return () => { clearTimeout(t); map.remove(); mapRef.current = null; };
+  }, [points]);
+  if (!window.L || !points || points.length < 2) return null;
+  return <div className="route-mini"><div ref={elRef} style={{ width: '100%', height: '100%' }} /></div>;
+}
+
 function RecordRun({ onClose, onSaved, onToast }) {
   const [phase, setPhase] = useState('idle');     // idle | recording | review
   const [actType, setActType] = useState('Run');
@@ -1959,18 +2076,25 @@ function RecordRun({ onClose, onSaved, onToast }) {
       )}
 
       {phase === 'recording' && (
-        <div style={{textAlign:'center',width:'100%',maxWidth:380}}>
-          <div style={{fontSize:'0.8rem',color:'var(--gray)',letterSpacing:2,textTransform:'uppercase',marginBottom:8}}>{actType === 'Run' ? '🏃 Running' : '🚶 Walking'}</div>
-          <div style={{...big,fontSize:'4.6rem'}}>{miles.toFixed(2)}</div>
-          <div style={{fontSize:'0.8rem',color:'var(--gray)',marginBottom:22}}>MILES</div>
-          <div className="flex" style={{justifyContent:'center',gap:40,marginBottom:36}}>
-            <div><div style={{...big,fontSize:'1.9rem'}}>{fmtClock(elapsed)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>TIME</div></div>
-            <div><div style={{...big,fontSize:'1.9rem'}}>{actType==='Walk' ? fmtSpeed(elapsed, miles) : fmtPace(elapsed, miles)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>{actType==='Walk' ? 'MPH' : '/MILE'}</div></div>
+        <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column'}}>
+          <LiveRouteMap points={stRef.current.points} />
+          <div style={{position:'relative',zIndex:2,marginTop:'auto',width:'100%',display:'flex',justifyContent:'center',
+            padding:'18px 16px calc(22px + env(safe-area-inset-bottom)) 16px'}}>
+            <div style={{textAlign:'center',width:'100%',maxWidth:420,background:'rgba(15,20,32,0.62)',backdropFilter:'blur(10px)',
+              WebkitBackdropFilter:'blur(10px)',border:'1px solid var(--border)',borderRadius:20,padding:'20px 20px 24px'}}>
+              <div style={{fontSize:'0.8rem',color:'var(--gray)',letterSpacing:2,textTransform:'uppercase',marginBottom:6}}>{actType === 'Run' ? '🏃 Running' : '🚶 Walking'}</div>
+              <div style={{...big,fontSize:'4.2rem'}}>{miles.toFixed(2)}</div>
+              <div style={{fontSize:'0.8rem',color:'var(--gray)',marginBottom:18}}>MILES</div>
+              <div className="flex" style={{justifyContent:'center',gap:40,marginBottom:22}}>
+                <div><div style={{...big,fontSize:'1.9rem'}}>{fmtClock(elapsed)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>TIME</div></div>
+                <div><div style={{...big,fontSize:'1.9rem'}}>{actType==='Walk' ? fmtSpeed(elapsed, miles) : fmtPace(elapsed, miles)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>{actType==='Walk' ? 'MPH' : '/MILE'}</div></div>
+              </div>
+              <button onClick={stop}
+                style={{...big,width:118,height:118,borderRadius:'50%',border:'3px solid #e74c3c',cursor:'pointer',fontSize:'1.3rem',background:'rgba(231,76,60,0.08)',color:'#e74c3c'}}>
+                END
+              </button>
+            </div>
           </div>
-          <button onClick={stop}
-            style={{...big,width:150,height:150,borderRadius:'50%',border:'3px solid #e74c3c',cursor:'pointer',fontSize:'1.4rem',background:'transparent',color:'#e74c3c'}}>
-            END
-          </button>
         </div>
       )}
 
@@ -1989,6 +2113,7 @@ function RecordRun({ onClose, onSaved, onToast }) {
             </div>
           ) : (
             <div>
+              <RouteMiniMap points={stRef.current.points} />
               <div className="form-group"><label>Name</label><input type="text" value={name} onChange={e=>setName(e.target.value)} /></div>
               <div className="flex gap-12">
                 <button className="btn btn-primary" style={{flex:1}} onClick={save} disabled={saving}>{saving ? <Spinner /> : `Save ${actType}`}</button>
