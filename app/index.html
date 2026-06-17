@@ -3010,27 +3010,54 @@ function CheckoutButton({ tier, label }) {
   );
 }
 
+// Resize/crop an image File to a square JPEG data URL (keeps avatar payloads small)
+function resizeImage(file, size) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement('canvas');
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      const scale = Math.max(size / img.width, size / img.height);
+      const w = img.width * scale, h = img.height * scale;
+      ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image')); };
+    img.src = url;
+  });
+}
+
 function Profile({ user, onLogout, onToast, onUserUpdate }) {
   const [stats, setStats]   = useState(null);
   const [badges, setBadges] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [loc, setLoc] = useState({ country: user.country || '', state: user.state || '', city: user.city || '' });
-  const [savingLoc, setSavingLoc] = useState(false);
   const [clubBusy, setClubBusy]   = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoRef = useRef(null);
 
   const refreshUser = async (msg) => {
     try { const r = await api.get('/auth/me'); onUserUpdate(r.user); } catch(e) {}
     if (msg) onToast(msg);
   };
 
-  const saveLoc = async () => {
-    setSavingLoc(true);
+  const onPhotoPick = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/^image\//.test(file.type)) { onToast('Please choose an image file.'); return; }
+    setUploadingPhoto(true);
     try {
-      await api.patch('/auth/me', { country: loc.country, state: loc.state.trim() || null, city: loc.city.trim() });
-      await refreshUser('Location updated.');
-    } catch(e) { alert(e.message); }
-    finally { setSavingLoc(false); }
+      const dataUrl = await resizeImage(file, 256);
+      await api.patch('/auth/me', { avatar_url: dataUrl });
+      await refreshUser('Photo updated.');
+    } catch (err) { onToast(`Error: ${err.message}`); }
+    finally { setUploadingPhoto(false); }
   };
+
+  const openPhotoPicker = () => { if (!uploadingPhoto && photoRef.current) photoRef.current.click(); };
 
   const leaveClub = async () => {
     setClubBusy(true);
@@ -3062,7 +3089,17 @@ function Profile({ user, onLogout, onToast, onUserUpdate }) {
       </div>
       <div className="page-body">
         <div className="profile-banner mb-24">
-          <div className="avatar avatar-lg">{user.name[0]}</div>
+          <div style={{position:'relative',flexShrink:0}}>
+            <div className="avatar avatar-lg" onClick={openPhotoPicker}
+                 style={{cursor:'pointer',overflow:'hidden',opacity:uploadingPhoto?0.6:1,backgroundImage:user.avatar_url?`url(${user.avatar_url})`:'none',backgroundSize:'cover',backgroundPosition:'center'}}>
+              {!user.avatar_url && user.name[0]}
+            </div>
+            <span onClick={openPhotoPicker} title="Upload photo"
+                  style={{position:'absolute',right:-2,bottom:-2,width:26,height:26,borderRadius:'50%',background:'var(--blue)',color:'var(--black)',border:'2px solid var(--card)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer'}}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 4 7.5 6H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3.5L15 4H9zm3 4.5a5 5 0 1 1 0 10 5 5 0 0 1 0-10z"/></svg>
+            </span>
+            <input ref={photoRef} type="file" accept="image/*" onChange={onPhotoPick} style={{display:'none'}} />
+          </div>
           <div className="profile-info">
             <h2>{user.name}</h2>
             <div className="flex gap-8 mt-8 flex-wrap" style={{marginTop:8}}>
@@ -3098,34 +3135,6 @@ function Profile({ user, onLogout, onToast, onUserUpdate }) {
             </div>
 
             <div className="card">
-              <div className="card-title">Membership</div>
-              <div style={{marginBottom:16}}>
-                <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:'1px solid var(--border)',fontSize:'0.88rem'}}>
-                  <span style={{color:'var(--gray)'}}>Current Plan</span>
-                  <span className={`badge ${user.tier==='Elite'?'badge-gold':'badge-blue'}`}>{user.tier}</span>
-                </div>
-                <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:'1px solid var(--border)',fontSize:'0.88rem'}}>
-                  <span style={{color:'var(--gray)'}}>Status</span>
-                  <span style={{color:'var(--green)',fontWeight:600}}>Active</span>
-                </div>
-                <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',fontSize:'0.88rem'}}>
-                  <span style={{color:'var(--gray)'}}>Annual Price</span>
-                  <span style={{fontWeight:600}}>{user.tier === 'Elite' ? '$249/yr' : '$199/yr'}</span>
-                </div>
-              </div>
-              {user.tier !== 'Elite' && (
-                <div style={{background:'rgba(245,158,11,0.08)',border:'1px solid rgba(245,158,11,0.2)',borderRadius:10,padding:16,marginBottom:12}}>
-                  <div style={{fontWeight:700,fontSize:'0.88rem',color:'var(--gold)',marginBottom:4}}>Upgrade to Elite</div>
-                  <div style={{fontSize:'0.78rem',color:'var(--gray)'}}>Unlock exclusive challenges, captain eligibility & priority support for $249/yr</div>
-                  <CheckoutButton tier="Elite" label="Upgrade to Elite → $249/yr" />
-                </div>
-              )}
-              <div style={{fontSize:'0.75rem',color:'var(--gray)',textAlign:'center',marginTop:8}}>
-                Payments secured by Stripe 🔒
-              </div>
-            </div>
-
-            <div className="card">
               <div className="card-title">🏃 Run Club</div>
               {user.club_name ? (
                 <div>
@@ -3144,14 +3153,6 @@ function Profile({ user, onLogout, onToast, onUserUpdate }) {
               ) : (
                 <ClubPicker onJoined={(d)=>refreshUser(d.message)} />
               )}
-            </div>
-
-            <div className="card">
-              <div className="card-title">📍 Location</div>
-              <LocationFields value={loc} onChange={setLoc} />
-              <button className="btn btn-primary btn-sm" style={{width:'100%'}} disabled={savingLoc || !locationComplete(loc)} onClick={saveLoc}>
-                {savingLoc ? <Spinner /> : 'Save Location'}
-              </button>
             </div>
 
             <div className="card">
@@ -3174,6 +3175,77 @@ function Profile({ user, onLogout, onToast, onUserUpdate }) {
 }
 
 /* ══════════════════════════════════════
+   ACCOUNT (membership + location)
+══════════════════════════════════════ */
+function Account({ user, onToast, onUserUpdate }) {
+  const [loc, setLoc] = useState({ country: user.country || '', state: user.state || '', city: user.city || '' });
+  const [savingLoc, setSavingLoc] = useState(false);
+
+  const refreshUser = async (msg) => {
+    try { const r = await api.get('/auth/me'); onUserUpdate(r.user); } catch(e) {}
+    if (msg) onToast(msg);
+  };
+
+  const saveLoc = async () => {
+    setSavingLoc(true);
+    try {
+      await api.patch('/auth/me', { country: loc.country, state: loc.state.trim() || null, city: loc.city.trim() });
+      await refreshUser('Location updated.');
+    } catch(e) { alert(e.message); }
+    finally { setSavingLoc(false); }
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="page-header-inner">
+          <div><div className="page-title">Account</div><div className="page-sub">Membership & settings</div></div>
+        </div>
+      </div>
+      <div className="page-body">
+        <div className="grid-2">
+          <div className="card">
+            <div className="card-title">Membership</div>
+            <div style={{marginBottom:16}}>
+              <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:'1px solid var(--border)',fontSize:'0.88rem'}}>
+                <span style={{color:'var(--gray)'}}>Current Plan</span>
+                <span className={`badge ${user.tier==='Elite'?'badge-gold':'badge-blue'}`}>{user.tier}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:'1px solid var(--border)',fontSize:'0.88rem'}}>
+                <span style={{color:'var(--gray)'}}>Status</span>
+                <span style={{color:'var(--green)',fontWeight:600}}>Active</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',fontSize:'0.88rem'}}>
+                <span style={{color:'var(--gray)'}}>Annual Price</span>
+                <span style={{fontWeight:600}}>{user.tier === 'Elite' ? '$249/yr' : '$199/yr'}</span>
+              </div>
+            </div>
+            {user.tier !== 'Elite' && (
+              <div style={{background:'rgba(245,158,11,0.08)',border:'1px solid rgba(245,158,11,0.2)',borderRadius:10,padding:16,marginBottom:12}}>
+                <div style={{fontWeight:700,fontSize:'0.88rem',color:'var(--gold)',marginBottom:4}}>Upgrade to Elite</div>
+                <div style={{fontSize:'0.78rem',color:'var(--gray)'}}>Unlock exclusive challenges, captain eligibility & priority support for $249/yr</div>
+                <CheckoutButton tier="Elite" label="Upgrade to Elite → $249/yr" />
+              </div>
+            )}
+            <div style={{fontSize:'0.75rem',color:'var(--gray)',textAlign:'center',marginTop:8}}>
+              Payments secured by Stripe 🔒
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-title">📍 Location</div>
+            <LocationFields value={loc} onChange={setLoc} />
+            <button className="btn btn-primary btn-sm" style={{width:'100%'}} disabled={savingLoc || !locationComplete(loc)} onClick={saveLoc}>
+              {savingLoc ? <Spinner /> : 'Save Location'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════
    APP SHELL
 ══════════════════════════════════════ */
 const NAV = [
@@ -3185,6 +3257,7 @@ const NAV = [
   { id:'askcaptain', icon:'💬', label:'Ask a Captain' },
   { id:'captain', icon:'🎖️', label:'Captain Panel' },
   { id:'profile', icon:'👤', label:'My Profile' },
+  { id:'account', icon:'⚙️', label:'Account' },
 ];
 
 function App() {
@@ -3244,6 +3317,7 @@ function App() {
       case 'askcaptain': return <AskCaptain user={user} onToast={showToast} />;
       case 'captain':    return <CaptainPanel user={user} onToast={showToast} />;
       case 'profile':    return <Profile user={user} onLogout={()=>{ api.setToken(null); setUser(null); }} onToast={showToast} onUserUpdate={u=>setUser(u)} />;
+      case 'account':    return <Account user={user} onToast={showToast} onUserUpdate={u=>setUser(u)} />;
       default:           return <Dashboard user={user} />;
     }
   };

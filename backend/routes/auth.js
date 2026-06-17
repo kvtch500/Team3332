@@ -87,15 +87,19 @@ router.get('/me', requireAuth, (req, res) => {
 
 // PATCH /api/auth/me — Update profile
 router.patch('/me', requireAuth, (req, res) => {
-  const { name, bio, location, pace_group, country, state, city } = req.body;
+  const { name, bio, location, pace_group, country, state, city, avatar_url } = req.body;
+  if (avatar_url != null && (typeof avatar_url !== 'string' || avatar_url.length > 700000)) {
+    return res.status(413).json({ error: 'Photo is too large. Please choose a smaller image.' });
+  }
   const db = getDb();
 
   db.prepare(`
     UPDATE users SET name = COALESCE(?, name), bio = COALESCE(?, bio),
     location = COALESCE(?, location), pace_group = COALESCE(?, pace_group),
     country = COALESCE(?, country), state = COALESCE(?, state), city = COALESCE(?, city),
+    avatar_url = COALESCE(?, avatar_url),
     updated_at = datetime('now') WHERE id = ?
-  `).run(name ?? null, bio ?? null, location ?? null, pace_group ?? null, country ?? null, state ?? null, city ?? null, req.user.id);
+  `).run(name ?? null, bio ?? null, location ?? null, pace_group ?? null, country ?? null, state ?? null, city ?? null, avatar_url ?? null, req.user.id);
 
   const user = getUserWithClub(db, req.user.id);
   res.json({ user: safeUser(user) });
