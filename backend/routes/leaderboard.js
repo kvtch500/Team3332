@@ -26,6 +26,7 @@ router.get('/', requireAuth, (req, res) => {
       u.tier,
       u.pace_group,
       u.is_captain,
+      u.avatar_url,
       CASE WHEN c.status = 'verified' THEN c.id   END AS club_id,
       CASE WHEN c.status = 'verified' THEN c.name END AS club_name,
       ROUND(SUM(a.distance), 1) AS total_miles,
@@ -55,7 +56,7 @@ router.get('/', requireAuth, (req, res) => {
   if (!myRank) {
     myEntry = db.prepare(`
       SELECT
-        u.id, u.name, u.tier, u.pace_group, u.is_captain,
+        u.id, u.name, u.tier, u.pace_group, u.is_captain, u.avatar_url,
         ROUND(SUM(a.distance), 1) AS total_miles,
         COUNT(a.id) AS run_count
       FROM users u

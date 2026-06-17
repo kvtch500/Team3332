@@ -908,6 +908,15 @@ const api = {
 /* ══════════════════════════════════════
    HELPERS
 ══════════════════════════════════════ */
+// Shared avatar: shows the member's uploaded photo if present, else their initial.
+function Avatar({ member, style }) {
+  const url = member && member.avatar_url;
+  if (url) {
+    return <div className="avatar" style={{...style, overflow:'hidden', backgroundImage:`url(${url})`, backgroundSize:'cover', backgroundPosition:'center'}} />;
+  }
+  return <div className="avatar" style={style}>{member && member.name ? member.name[0] : '?'}</div>;
+}
+
 function formatDate(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -1018,7 +1027,7 @@ function ClubModal({ clubId, onClose }) {
             <div style={{maxHeight:'50vh',overflowY:'auto'}}>
               {data.members.map(m => (
                 <div key={m.id} className="lb-row">
-                  <div className="avatar" style={{width:34,height:34,fontSize:'0.82rem'}}>{m.name[0]}</div>
+                  <Avatar member={m} style={{width:34,height:34,fontSize:'0.82rem'}} />
                   <div style={{flex:1}}>
                     <div className="lb-name">{m.name}{m.is_captain ? <span style={{fontSize:'0.7rem',marginLeft:6}}>🎖️</span> : null}</div>
                     <div className="lb-sub">{fmtLocation(m) || `Group ${m.pace_group}`}</div>
@@ -1557,7 +1566,7 @@ function Dashboard({ user }) {
           {leaderboard.map((m, i) => (
             <div key={m.id} className={`lb-row ${m.is_you?'lb-you':''}`}>
               <div className={`lb-rank ${i===0?'gold':i===1?'silver':i===2?'bronze':''}`}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</div>
-              <div className="avatar" style={{width:30,height:30,fontSize:'0.75rem'}}>{m.name[0]}</div>
+              <Avatar member={m} style={{width:30,height:30,fontSize:'0.75rem'}} />
               <div style={{flex:1}}>
                 <div className="lb-name">{m.name}{m.is_you && <span style={{fontSize:'0.7rem',color:'var(--blue)',marginLeft:6}}>you</span>}</div>
                 <div className="lb-sub">Pace Group {m.pace_group} · {m.tier}</div>
@@ -2228,7 +2237,7 @@ function Leaderboard() {
             {data.slice(0,3).map((m,i)=>(
               <div key={m.id} className="card" style={{textAlign:'center',borderColor:i===0?'rgba(255,215,0,0.3)':i===1?'rgba(192,192,192,0.3)':'rgba(205,127,50,0.3)'}}>
                 <div style={{fontSize:'2rem',marginBottom:8}}>{i===0?'🥇':i===1?'🥈':'🥉'}</div>
-                <div className="avatar" style={{margin:'0 auto 8px',width:48,height:48,fontSize:'1.1rem',background:i===0?'#FFD700':i===1?'#C0C0C0':'#CD7F32',color:'var(--black)'}}>{m.name[0]}</div>
+                <Avatar member={m} style={{margin:'0 auto 8px',width:48,height:48,fontSize:'1.1rem',background:i===0?'#FFD700':i===1?'#C0C0C0':'#CD7F32',color:'var(--black)'}} />
                 <div style={{fontWeight:700,fontSize:'0.9rem'}}>{m.name}{m.is_you&&<span style={{color:'var(--blue)',fontSize:'0.72rem',marginLeft:4}}>you</span>}</div>
                 <div style={{fontSize:'0.75rem',color:'var(--gray)',marginBottom:8}}>Group {m.pace_group} · {m.tier}</div>
                 {m.club_id && <div style={{fontSize:'0.72rem',marginBottom:6}}><ClubName id={m.club_id} name={m.club_name} /></div>}
@@ -2244,7 +2253,7 @@ function Leaderboard() {
             {data.map((m,i)=>(
               <div key={m.id} className={`lb-row ${m.is_you?'lb-you':''}`}>
                 <div className={`lb-rank ${i===0?'gold':i===1?'silver':i===2?'bronze':''}`}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</div>
-                <div className="avatar" style={{width:34,height:34,fontSize:'0.82rem'}}>{m.name[0]}</div>
+                <Avatar member={m} style={{width:34,height:34,fontSize:'0.82rem'}} />
                 <div style={{flex:1}}>
                   <div className="lb-name">{m.name}{m.is_you&&<span style={{fontSize:'0.7rem',color:'var(--blue)',marginLeft:6}}>you</span>}</div>
                   <div className="lb-sub">Group {m.pace_group} · {m.tier}{m.club_id && <span> · <ClubName id={m.club_id} name={m.club_name} style={{fontSize:'0.72rem'}} /></span>}</div>

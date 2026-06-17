@@ -35,7 +35,7 @@ router.get('/:id', requireAuth, (req, res) => {
     return res.status(404).json({ error: 'Club not found' });
 
   const members = db.prepare(`
-    SELECT u.id, u.name, u.tier, u.pace_group, u.is_captain, u.country, u.state, u.city,
+    SELECT u.id, u.name, u.tier, u.pace_group, u.is_captain, u.avatar_url, u.country, u.state, u.city,
            ROUND(SUM(a.distance), 1) AS total_miles,
            COUNT(a.id)               AS total_runs
     FROM users u
