@@ -1781,7 +1781,12 @@ async function shareActivity(opts, onToast) {
 // ---------------------------------------------------------------------------
 const GeoTracker = (() => {
   const Cap = (typeof window !== 'undefined') ? window.Capacitor : null;
-  const isNative = !!(Cap && typeof Cap.isNativePlatform === 'function' && Cap.isNativePlatform());
+  // The native plugin path needs BOTH a native platform AND the core runtime's
+  // registerPlugin(). Some WKWebView loads inject window.Capacitor (so isNativePlatform
+  // works) WITHOUT registerPlugin — calling it then throws and blanks the whole app.
+  // Guard on it so the recorder cleanly falls back to navigator.geolocation. (617d)
+  const canUsePlugins = !!(Cap && typeof Cap.registerPlugin === 'function');
+  const isNative = !!(Cap && typeof Cap.isNativePlatform === 'function' && Cap.isNativePlatform() && canUsePlugins);
   let _bg = null, _fg = null;
   const bg = () => { if (!_bg && Cap) _bg = Cap.registerPlugin('BackgroundGeolocation'); return _bg; };
   const fg = () => { if (!_fg && Cap) _fg = Cap.registerPlugin('Geolocation'); return _fg; };
@@ -1872,7 +1877,14 @@ const MAPBOX_TOKEN = [
   '.zVe0jZlu5ISuz-NDQx536g',
 ].join('');
 const MAPBOX_STYLE = 'mapbox/dark-v11';
-const USING_MAPBOX = MAPBOX_TOKEN.startsWith('pk.');
+// The Mapbox token is URL-restricted to team3332.com. The native app runs from
+// capacitor://localhost, an origin Mapbox rejects (403 → blank basemap). So inside
+// the Capacitor app, fall back to OpenStreetMap tiles (no token, no origin restriction)
+// which the .tiles-osm CSS already mutes to suit the dark theme. The web app
+// (team3332.com) is unaffected and keeps the dark Mapbox style. (617d)
+const IS_NATIVE_APP = !!(typeof window !== 'undefined' && window.Capacitor
+  && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+const USING_MAPBOX = MAPBOX_TOKEN.startsWith('pk.') && !IS_NATIVE_APP;
 
 // Returns a Leaflet tile layer: Mapbox if a token is set, else OpenStreetMap.
 function baseTileLayer() {
