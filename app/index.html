@@ -646,6 +646,27 @@
     .bottom-nav-item .bnav-icon { font-size: 1.2rem; }
     .bottom-nav-item.active { color: var(--blue); }
 
+    /* Raised center Record button */
+    .bottom-nav-item.bnav-record {
+      flex: 0 0 auto;
+      justify-content: flex-end;
+      padding: 6px 14px;
+      color: var(--blue);
+    }
+    .bnav-record-circle {
+      width: 54px; height: 54px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue-light), var(--blue));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.35rem; color: var(--black);
+      box-shadow: 0 6px 16px rgba(212,175,55,0.5);
+      border: 3px solid var(--dark);
+      margin-top: -26px;
+      margin-bottom: 2px;
+      transition: transform 0.12s;
+    }
+    .bottom-nav-item.bnav-record:active .bnav-record-circle { transform: scale(0.93); }
+
     .sidebar-overlay {
       display: none;
       position: fixed;
@@ -3170,6 +3191,8 @@ function App() {
   const [booting, setBooting]     = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showRecord, setShowRecord] = useState(false);
+  const [activityKey, setActivityKey] = useState(0);
 
   useEffect(() => {
     // Check for Stripe redirect
@@ -3211,7 +3234,7 @@ function App() {
   const renderPage = () => {
     switch(page) {
       case 'dashboard':  return <Dashboard user={user} />;
-      case 'activity':   return <ActivityLog onToast={showToast} />;
+      case 'activity':   return <ActivityLog key={activityKey} onToast={showToast} />;
       case 'leaderboard':return <Leaderboard />;
       case 'challenges': return <Challenges onToast={showToast} />;
       case 'groupruns':  return <GroupRuns onToast={showToast} />;
@@ -3225,12 +3248,12 @@ function App() {
   if (!user) return <AuthPage onLogin={(u, isNew) => { setUser(u); if (isNew) setShowOnboarding(true); }} />;
   if (showOnboarding) return <Onboarding user={user} onComplete={(u, msg) => { if (u) setUser(u); setShowOnboarding(false); if (msg) showToast(msg); }} />;
 
-  // Bottom nav items (5 max for mobile)
+  // Bottom nav: 4 tabs flanking a raised center Record button.
+  // Goals (challenges) lives in the sidebar menu. Order: Home · Runs · ⊙Record · Board · Me
   const bottomNavItems = [
     { id:'dashboard',   icon:'🏠', label:'Home' },
     { id:'activity',    icon:'🏃', label:'Runs' },
     { id:'leaderboard', icon:'🏆', label:'Board' },
-    { id:'challenges',  icon:'⚡', label:'Goals' },
     { id:'profile',     icon:'👤', label:'Me' },
   ];
 
@@ -3282,7 +3305,17 @@ function App() {
       {/* Bottom nav (mobile) */}
       <nav className="bottom-nav">
         <div className="bottom-nav-inner">
-          {bottomNavItems.map(n=>(
+          {bottomNavItems.slice(0,2).map(n=>(
+            <button key={n.id} className={`bottom-nav-item ${page===n.id?'active':''}`} onClick={()=>navigate(n.id)}>
+              <span className="bnav-icon">{n.icon}</span>
+              {n.label}
+            </button>
+          ))}
+          <button className="bottom-nav-item bnav-record" onClick={()=>setShowRecord(true)} aria-label="Record a run or walk">
+            <span className="bnav-record-circle">▶</span>
+            Record
+          </button>
+          {bottomNavItems.slice(2).map(n=>(
             <button key={n.id} className={`bottom-nav-item ${page===n.id?'active':''}`} onClick={()=>navigate(n.id)}>
               <span className="bnav-icon">{n.icon}</span>
               {n.label}
@@ -3290,6 +3323,14 @@ function App() {
           ))}
         </div>
       </nav>
+
+      {showRecord && (
+        <RecordRun
+          onClose={()=>setShowRecord(false)}
+          onSaved={()=>{ setActivityKey(k=>k+1); setPage('activity'); }}
+          onToast={showToast}
+        />
+      )}
 
       {toast && <Toast message={toast} onClose={()=>setToast(null)} />}
     </div>
