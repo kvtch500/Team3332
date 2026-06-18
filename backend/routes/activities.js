@@ -6,6 +6,58 @@ const { getDb } = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { parseGpx } = require('../lib/gpx');
 
+// ── Best-effort helpers (timestamped GPS tracks → real fastest splits) ──────────
+// Great-circle distance between two [lat,lon] points, in miles.
+function haversineMi(a, b) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (b[0] - a[0]) * rad, dLon = (b[1] - a[1]) * rad;
+  const s = Math.sin(dLat / 2) ** 2 +
+            Math.cos(a[0] * rad) * Math.cos(b[0] * rad) * Math.sin(dLon / 2) ** 2;
+  return (2 * R * Math.asin(Math.sqrt(s))) / 1609.344;
+}
+
+// Parse route_data into a cumulative {cum:[miles], t:[secs]} track, but ONLY if every point
+// carries a numeric timestamp (p[2]). Returns null for legacy [lat,lon] tracks or bad data.
+function parseTrack(route_data) {
+  if (!route_data) return null;
+  let pts;
+  try {
+    const parsed = typeof route_data === 'string' ? JSON.parse(route_data) : route_data;
+    pts = parsed && Array.isArray(parsed.points) ? parsed.points : null;
+  } catch { return null; }
+  if (!pts || pts.length < 2) return null;
+  if (!pts.every(p => Array.isArray(p) && p.length >= 3 && Number.isFinite(p[2]))) return null;
+  const cum = [0], t = [pts[0][2]];
+  for (let i = 1; i < pts.length; i++) {
+    cum[i] = cum[i - 1] + haversineMi(pts[i - 1], pts[i]);
+    t[i] = pts[i][2];
+  }
+  // Timestamps must be non-decreasing and span some time, else the track is unusable.
+  if (!(t[t.length - 1] > t[0])) return null;
+  return { cum, t };
+}
+
+// Fastest time (secs) to cover exactly `miles` anywhere within a timestamped track, using a
+// forward two-pointer window with linear interpolation at the far end. null if the track
+// never covers that far. O(n) per benchmark since j only advances.
+function fastestSegment(track, miles) {
+  const { cum, t } = track;
+  const n = cum.length;
+  if (cum[n - 1] < miles) return null;
+  let best = Infinity, j = 1;
+  for (let i = 0; i < n; i++) {
+    if (j <= i) j = i + 1;
+    while (j < n && cum[j] - cum[i] < miles) j++;
+    if (j >= n) break;                                    // can't reach `miles` from here on
+    const legDist = cum[j] - cum[j - 1];
+    const need = miles - (cum[j - 1] - cum[i]);           // remaining distance into the last leg
+    const frac = legDist > 0 ? need / legDist : 0;
+    const segTime = (t[j - 1] - t[i]) + (t[j] - t[j - 1]) * frac;
+    if (segTime < best) best = segTime;
+  }
+  return isFinite(best) && best > 0 ? best : null;
+}
+
 // GET /api/activities — My activities (paginated)
 router.get('/', requireAuth, (req, res) => {
   const db    = getDb();
@@ -71,14 +123,15 @@ router.get('/stats', requireAuth, (req, res) => {
 // totals, current streak, active calendar dates, best efforts, race predictions, and a
 // 6-month trend. Defined BEFORE '/:id' so 'progress' isn't captured as an activity id.
 //
-// IMPORTANT: best efforts are ESTIMATED. Route points are stored as [lat,lon] without
-// per-point timestamps, so we can't compute true fastest-segment splits. Instead, for each
-// benchmark distance we take the fastest even-pace projection from any run that covered at
-// least that far. (Roadmap: store [lat,lon,t] to enable real segment best efforts.)
+// Best efforts: real fastest-segment splits when a run has timestamped GPS points
+// (route_data points stored as [lat,lon,t], t = secs since start — recorded in-app from 618e,
+// or imported from GPX with timestamps). For runs without per-point timestamps (legacy tracks
+// or GPX without time), we fall back to the fastest even-pace projection from any run that
+// covered at least that far, tagged estimated.
 router.get('/progress', requireAuth, (req, res) => {
   const db = getDb();
   const rows = db.prepare(`
-    SELECT id, type, distance, pace, duration, logged_at
+    SELECT id, type, distance, pace, duration, logged_at, route_data
     FROM activities WHERE user_id = ?
     ORDER BY logged_at ASC
   `).all(req.user.id);
@@ -113,26 +166,37 @@ router.get('/progress', requireAuth, (req, res) => {
   if (!dateSet.has(isoDay(cur))) cur.setDate(cur.getDate() - 1); // grace: no run yet today
   while (dateSet.has(isoDay(cur))) { streak++; cur.setDate(cur.getDate() - 1); }
 
-  // ── Best efforts (Run only), estimated by even-pace projection ──
+  // ── Best efforts (Run only) ──
+  // Real fastest-segment splits when a run's track has per-point timestamps; otherwise an
+  // even-pace projection. See helpers (haversineMi, parseTrack, fastestSegment) below.
   const BENCHMARKS = [
     ['½ mile', 0.5], ['1 mile', 1], ['2 mile', 2], ['5K', 3.10686], ['10K', 6.21371],
     ['15K', 9.32057], ['10 mile', 10], ['20K', 12.4274], ['½ Marathon', 13.1094],
     ['30K', 18.6411], ['Marathon', 26.2188], ['50K', 31.0686], ['100 Miler', 100],
   ];
   const runs = rows.filter(a => (a.type || 'Run') === 'Run' && actSecs(a) > 0 && (parseFloat(a.distance) || 0) > 0);
+  // Parse each run's timestamped track once (null when the track has no per-point times).
+  const runTracks = runs.map(a => ({ a, dist: parseFloat(a.distance), track: parseTrack(a.route_data) }));
   const best_efforts = BENCHMARKS.map(([label, miles]) => {
     let best = null;
-    for (const a of runs) {
-      const dist = parseFloat(a.distance);
+    for (const { a, dist, track } of runTracks) {
       if (dist < miles * 0.995) continue;                 // must have covered at least this far
-      const projected = actSecs(a) * (miles / dist);      // even-pace projection to the benchmark
-      if (!best || projected < best.time_secs) {
+      let time_secs, estimated;
+      const real = track ? fastestSegment(track, miles) : null;
+      if (real != null) {
+        time_secs = real;                                 // true fastest segment from GPS timestamps
+        estimated = false;
+      } else {
+        time_secs = actSecs(a) * (miles / dist);          // even-pace projection fallback
+        estimated = dist > miles * 1.02;                  // exact-ish if the run was ~this distance
+      }
+      if (!best || time_secs < best.time_secs) {
         best = {
-          time_secs: Math.round(projected),
-          pace_secs_per_mi: Math.round(projected / miles),
+          time_secs: Math.round(time_secs),
+          pace_secs_per_mi: Math.round(time_secs / miles),
           activity_id: a.id,
           logged_at: a.logged_at,
-          estimated: dist > miles * 1.02,                 // exact-ish if the run was ~this distance
+          estimated,
         };
       }
     }

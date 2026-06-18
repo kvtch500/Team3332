@@ -50,14 +50,22 @@ function parseGpx(xml) {
   const name = matchTag(xml, 'name') || 'Imported Run';
 
   // ── Downsampled route for the map ──
+  // When the GPX has timestamps, each point carries a third element t = whole seconds since
+  // the first timed point, so the backend can compute real fastest-segment best efforts.
+  // Without timestamps we keep the legacy [lat,lon] shape. (618e)
+  const startTime = timed.length ? timed[0].time : null;
   const step = Math.max(1, Math.ceil(points.length / MAX_ROUTE_POINTS));
   const route = [];
-  for (let i = 0; i < points.length; i += step)
-    route.push([round5(points[i].lat), round5(points[i].lon)]);
+  const pushPt = (p) => {
+    if (startTime && p.time)
+      route.push([round5(p.lat), round5(p.lon), Math.max(0, Math.round((p.time - startTime) / 1000))]);
+    else
+      route.push([round5(p.lat), round5(p.lon)]);
+  };
+  for (let i = 0; i < points.length; i += step) pushPt(points[i]);
   const last = points[points.length - 1];
   const tail = route[route.length - 1];
-  if (tail[0] !== round5(last.lat) || tail[1] !== round5(last.lon))
-    route.push([round5(last.lat), round5(last.lon)]);
+  if (tail[0] !== round5(last.lat) || tail[1] !== round5(last.lon)) pushPt(last);
 
   return {
     name: name.slice(0, 80),

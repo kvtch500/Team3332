@@ -159,11 +159,12 @@ Features that aren't launch-blockers but raise the product to "real running app"
 - [x] Streak, total runs/miles/time, active-day **calendar with gold stars**.
 - [x] **Best efforts** (½ mi → 100 miler) and **race-time predictions** (Riegel).
 - [x] **6-month** distance + active-time trend chart (vs prior months).
-- [ ] **Follow-up — timestamped GPS tracks:** best efforts are currently *estimated* from each
-      run's overall distance + time, because route points are stored as `[lat,lon]` only. Add a
-      timestamp to each recorded point (`[lat,lon,t]`) in `GeoTracker` + the GPX parser so we can
-      compute **true fastest-segment** best efforts (the real Strava behavior). Small recorder
-      change; backwards-compatible (old activities keep the estimate).
+- [x] **Timestamped GPS tracks → true fastest-segment best efforts** (June 2026, 618e): recorded
+      points now store `[lat,lon,t]` (t = secs since start) in `GeoTracker`, and the GPX parser
+      emits per-point timestamps when the file has them. The progress route computes real
+      fastest-segment splits via an O(n) sliding window with interpolation; runs without
+      timestamps (legacy or time-less GPX) fall back to the even-pace projection, tagged "est."
+      Backwards-compatible — old `[lat,lon]` tracks still render and still estimate.
 
 ---
 

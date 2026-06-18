@@ -58,12 +58,32 @@ async function req(method, path, { auth } = {}) {
 // ── Seed ────────────────────────────────────────────────────────
 // UTC day strings so the streak math (which uses UTC) is deterministic regardless of when
 // the test runs.
-let USER, EMPTY;
+let USER, EMPTY, TIMED;
 const dayUTC = (offset) => {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + offset);
   return d.toISOString().slice(0, 10); // YYYY-MM-DD
 };
+
+// Build a timestamped GPS track ([lat,lon,t]) along the meridian from a list of
+// {mi, secs} legs. Matches the backend's haversine earth model so cumulative distance
+// lands within rounding tolerance. Used to exercise real fastest-segment best efforts.
+const MI_PER_DEG = 69.0934; // R(6371000m)*π/180 / 1609.344
+function buildTrack(legs) {
+  const pts = [[0, 0, 0]];
+  let lat = 0, t = 0, totalMi = 0, totalSecs = 0;
+  const STEP = 0.05; // sub-point spacing (mi) for resolution
+  for (const leg of legs) {
+    const n = Math.max(1, Math.round(leg.mi / STEP));
+    const dLat = (leg.mi / n) / MI_PER_DEG, dt = leg.secs / n;
+    for (let k = 0; k < n; k++) {
+      lat += dLat; t += dt;
+      pts.push([Math.round(lat * 1e5) / 1e5, 0, Math.round(t)]);
+    }
+    totalMi += leg.mi; totalSecs += leg.secs;
+  }
+  return { points: pts, distance: Math.round(totalMi * 100) / 100, secs: totalSecs };
+}
 
 function seed() {
   const db = getDb();
@@ -71,16 +91,26 @@ function seed() {
     db.prepare(`INSERT INTO users (name, email, password) VALUES (?,?,?)`).run(name, email, 'x').lastInsertRowid;
   USER  = { id: mkUser('Runner', 'r@t.com') };
   EMPTY = { id: mkUser('Empty',  'e@t.com') };
+  TIMED = { id: mkUser('Timed',  't@t.com') };
 
-  const add = (uid, { type = 'Run', distance, pace = null, duration = null, day }) =>
-    db.prepare(`INSERT INTO activities (user_id, name, type, distance, pace, duration, logged_at)
-                VALUES (?,?,?,?,?,?,?)`)
-      .run(uid, 'A', type, distance, pace, duration, day + ' 12:00:00');
+  const add = (uid, { type = 'Run', distance, pace = null, duration = null, day, route_data = null }) =>
+    db.prepare(`INSERT INTO activities (user_id, name, type, distance, pace, duration, logged_at, route_data)
+                VALUES (?,?,?,?,?,?,?,?)`)
+      .run(uid, 'A', type, distance, pace, duration, day + ' 12:00:00', route_data);
 
   // Three consecutive days ending today → streak should be 3.
   add(USER.id, { type: 'Run',  distance: 1.0,      duration: '7:00',  day: dayUTC(0)  }); // 1 mi @ 7:00
   add(USER.id, { type: 'Run',  distance: 6.21371,  duration: '50:00', day: dayUTC(-1) }); // 10K @ 50:00
   add(USER.id, { type: 'Walk', distance: 2.0,      duration: '30:00', day: dayUTC(-2) }); // walk (excluded from best efforts)
+
+  // TIMED user: one 3-mile run with a timestamped track. Negative splits-ish:
+  // mile 1 = 6:00 (fast), mile 2 = 8:00, mile 3 = 10:00. Even pace = 8:00/mi (1440s total).
+  // Real fastest mile (360s) and fastest 2 miles (840s) must beat the even-pace projection.
+  const trk = buildTrack([{ mi: 1, secs: 360 }, { mi: 1, secs: 480 }, { mi: 1, secs: 600 }]);
+  add(TIMED.id, {
+    type: 'Run', distance: trk.distance, duration: '24:00', day: dayUTC(0),
+    route_data: JSON.stringify({ source: 'recorded', points: trk.points }),
+  });
 }
 
 const tok = () => token({ id: USER.id });
@@ -142,6 +172,28 @@ test('monthly trend returns exactly 6 months, current month populated', async ()
   const last = r.body.monthly[5];
   assert.ok(last.runs >= 1);          // today's run lands in the current month
   assert.ok(last.distance >= 1.0);
+});
+
+test('timestamped track: real fastest 1-mile split (not even-pace) ', async () => {
+  const r = await req('GET', '/api/activities/progress', { auth: token({ id: TIMED.id }) });
+  const mile = effort(r.body, '1 mile').best;
+  assert.strictEqual(mile.estimated, false);          // computed from real GPS timestamps
+  // Fastest mile is leg 1 ≈ 360s; tolerate downsample/interp/rounding error.
+  assert.ok(Math.abs(mile.time_secs - 360) <= 15, `1mi=${mile.time_secs}, expected ≈360`);
+  // Must beat the even-pace projection (1440s/3mi = 480s for a mile).
+  assert.ok(mile.time_secs < 460, `real split ${mile.time_secs} should beat projection 480`);
+});
+
+test('timestamped track: fastest 2-mile window = miles 1+2', async () => {
+  const r = await req('GET', '/api/activities/progress', { auth: token({ id: TIMED.id }) });
+  const two = effort(r.body, '2 mile').best;
+  assert.strictEqual(two.estimated, false);
+  assert.ok(Math.abs(two.time_secs - 840) <= 25, `2mi=${two.time_secs}, expected ≈840`); // 360+480
+});
+
+test('timestamped track: no best effort past the run distance (5K > 3mi)', async () => {
+  const r = await req('GET', '/api/activities/progress', { auth: token({ id: TIMED.id }) });
+  assert.strictEqual(effort(r.body, '5K').best, null); // 3.10686 mi > ~3.0 mi run
 });
 
 test('empty user: zeros, null predictions, all best efforts null', async () => {

@@ -733,14 +733,18 @@ function havMeters(a, b) {
 
 // Pure step function: takes recorder state + a GPS fix, returns updated state.
 // Filters: poor accuracy (>35m), jitter (<3m), GPS jumps (>12 m/s).
+// Points are stored as [lat, lon, ts] where ts = whole seconds since the first fix. The
+// timestamp powers real fastest-segment best efforts on the backend; consumers that only
+// read p[0]/p[1] (maps, distance) are unaffected by the extra element. (618e)
 function recorderStep(st, fix) {
   const { lat, lon, accuracy, t } = fix;
   if (accuracy != null && accuracy > 35) return st;
-  if (!st.last) return { ...st, last: { lat, lon, t }, points: [[lat, lon]] };
+  if (!st.last) return { ...st, t0: t, last: { lat, lon, t }, points: [[lat, lon, 0]] };
   const d = havMeters(st.last, { lat, lon });
   if (d < 3) return st;
   const dt = (t - st.last.t) / 1000;
   if (dt > 0 && d / dt > 12) return st;
+  const ts = Math.max(0, Math.round((t - st.t0) / 1000));
   return {
     ...st,
     meters: st.meters + d,
@@ -752,8 +756,8 @@ function recorderStep(st, fix) {
     // route stays represented and the tip keeps moving. Distance (meters) is computed from
     // `last`, independent of this array, so it's unaffected. (618)
     points: st.points.length < 4000
-      ? [...st.points, [lat, lon]]
-      : [...st.points.filter((_, i) => i % 2 === 0), [lat, lon]],
+      ? [...st.points, [lat, lon, ts]]
+      : [...st.points.filter((_, i) => i % 2 === 0), [lat, lon, ts]],
   };
 }
 
@@ -1194,7 +1198,11 @@ function RecordRun({ onClose, onSaved, onToast }) {
       const dist = Math.round(miles * 100) / 100;
       const st = stRef.current;
       const step = Math.max(1, Math.ceil(st.points.length / 200));
-      const route = st.points.filter((_, i) => i % step === 0).map(p => [Math.round(p[0]*1e5)/1e5, Math.round(p[1]*1e5)/1e5]);
+      const r5 = n => Math.round(n*1e5)/1e5;
+      // Preserve the per-point timestamp (p[2], secs since start) when present so the backend
+      // can compute true fastest-segment best efforts; legacy points stay [lat,lon]. (618e)
+      const route = st.points.filter((_, i) => i % step === 0)
+        .map(p => p.length >= 3 ? [r5(p[0]), r5(p[1]), p[2]] : [r5(p[0]), r5(p[1])]);
       await api.post('/activities', {
         name: name || `My ${actType}`,
         type: actType,
@@ -2333,8 +2341,9 @@ function resizeImage(file, size) {
 /* ══════════════════════════════════════
    PROGRESS  (Strava-style "Me" sub-tab)
    Streak · active-day calendar · best efforts · race predictions · 6-month trend.
-   Data from GET /api/activities/progress. Best efforts/predictions are estimates
-   (route points have no per-point timestamps yet — see ROADMAP).
+   Data from GET /api/activities/progress. Best efforts use real fastest-segment splits
+   when a run has timestamped GPS points ([lat,lon,t]); runs recorded before 618e (or
+   imported without time data) fall back to an even-pace projection, tagged "est." (618e).
 ══════════════════════════════════════ */
 function fmtHMS(secs) { return secs > 0 ? fmtClock(Math.round(secs)) : '—'; }
 function fmtPaceMi(spm) { return spm > 0 ? fmtClock(Math.round(spm)) + '/mi' : '—'; }
