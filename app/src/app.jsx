@@ -790,6 +790,20 @@ function fmtSpeed(secs, miles) {
   if (mph > 30) return '—'; // GPS glitch guard
   return mph.toFixed(1);
 }
+// Build the iOS Live Activity payload from the live recorder state: distance in miles +
+// elapsed secs + the same secondary metric the on-screen card shows (pace for runs, mph for
+// walks). Pure → node-checkable. Consumed by the LiveActivity bridge in RecordRun. (618g)
+function liveActivityPayload(actType, meters, elapsed) {
+  const mi = (meters || 0) / 1609.344;
+  const isWalk = actType === 'Walk';
+  return {
+    activityType: actType === 'Walk' ? 'Walk' : 'Run',
+    distanceMiles: Math.round(mi * 100) / 100,
+    elapsedSeconds: Math.max(0, Math.round(elapsed || 0)),
+    metricValue: isWalk ? fmtSpeed(elapsed, mi) : fmtPace(elapsed, mi),
+    metricLabel: isWalk ? 'MPH' : '/MI',
+  };
+}
 // "HH:MM:SS" | "MM:SS" → seconds
 function durSecs(dur) {
   if (!dur) return 0;
@@ -1001,6 +1015,35 @@ const GeoTracker = (() => {
   return { isNative, startPreview, stopPreview, startRecording, stopRecording };
 })();
 
+// ---------------------------------------------------------------------------
+// LiveActivity — iOS lock-screen / Dynamic Island live run stats. (618g)
+//   • Native iOS 16.1+ (Capacitor): drives the LiveActivityPlugin (ActivityKit).
+//   • Everywhere else (web, Android, pre-16.1, or before the widget target is wired up
+//     in Xcode): every method is a safe no-op.
+// Feature-detected with the SAME registerPlugin guard as GeoTracker — some WKWebView loads
+// inject window.Capacitor WITHOUT registerPlugin, and calling it then throws and blanks the
+// whole app (617d). Plugin calls that reject (e.g. Android's "not implemented") are swallowed
+// so a Live Activity hiccup can never interrupt a recording.
+// ---------------------------------------------------------------------------
+const LiveActivity = (() => {
+  const Cap = (typeof window !== 'undefined') ? window.Capacitor : null;
+  const canUsePlugins = !!(Cap && typeof Cap.registerPlugin === 'function');
+  const isNative = !!(Cap && typeof Cap.isNativePlatform === 'function' && Cap.isNativePlatform() && canUsePlugins);
+  let _p = null;
+  const plugin = () => {
+    if (!isNative) return null;
+    if (!_p) { try { _p = Cap.registerPlugin('LiveActivity'); } catch (e) { _p = null; } }
+    return _p;
+  };
+  // Run a plugin call and swallow any sync throw or async rejection.
+  const safe = (fn) => { try { const r = fn(); if (r && typeof r.catch === 'function') r.catch(() => {}); } catch (e) { /* never fatal */ } };
+
+  function start(payload)  { const p = plugin(); if (p) safe(() => p.start(payload)); }
+  function update(payload) { const p = plugin(); if (p) safe(() => p.update(payload)); }
+  function end(payload)    { const p = plugin(); if (p) safe(() => p.end(payload || {})); }
+  return { start, update, end };
+})();
+
 /* ── Map basemap config ────────────────────────────────────────────────────
    Paste your Mapbox public token below to switch every route map from the free
    OpenStreetMap tiles to Mapbox's styled tiles. Leave it '' to stay on OSM
@@ -1190,8 +1233,13 @@ function RecordRun({ onClose, onSaved, onToast }) {
         if (kind === 'denied') onToast('Location access is off — turn it on to record your route.');
       }
     );
+    // Start the iOS Live Activity (lock-screen / Dynamic Island). No-op off native. (618g)
+    LiveActivity.start(liveActivityPayload(actType, 0, 0));
     timerRef.current = setInterval(() => {
-      setElapsed(Math.round((Date.now() - startRef.current.getTime()) / 1000));
+      const secs = Math.round((Date.now() - startRef.current.getTime()) / 1000);
+      setElapsed(secs);
+      // Push live stats to the Live Activity once a second (distance + time + pace/mph).
+      LiveActivity.update(liveActivityPayload(actType, stRef.current.meters, secs));
     }, 1000);
     setPhase('recording');
   };
@@ -1199,6 +1247,7 @@ function RecordRun({ onClose, onSaved, onToast }) {
   const stop = () => {
     if (watchRef.current != null) { GeoTracker.stopRecording(watchRef.current); watchRef.current = null; }
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    LiveActivity.end(liveActivityPayload(actType, stRef.current.meters, elapsed)); // dismiss with final stats (618g)
     const hour = startRef.current.getHours();
     const tod = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
     setName(`${tod} ${actType}`);
@@ -1208,6 +1257,7 @@ function RecordRun({ onClose, onSaved, onToast }) {
   useEffect(() => () => { // cleanup if component unmounts mid-recording
     if (watchRef.current != null) GeoTracker.stopRecording(watchRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
+    LiveActivity.end(); // clear any lingering Live Activity if the user leaves mid-run (618g)
   }, []);
 
   const save = async () => {

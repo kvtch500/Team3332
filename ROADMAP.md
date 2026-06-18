@@ -147,16 +147,22 @@ Features that aren't launch-blockers but raise the product to "real running app"
       access turned off" — and clears it automatically when fixes resume. `denied` still also
       fires the existing toast. Pure `recGpsAlert(kind)` helper; works native + web.
 
-### Lock-screen Live Activity (iOS) — runner-facing
+### Lock-screen Live Activity (iOS) — runner-facing ✅ in progress
 *Goal: a Strava/Nike-style live card on the lock screen + Dynamic Island during a run.*
 
-- [ ] Build an **ActivityKit Live Activity** widget extension in the iOS project (iOS 16.1+):
-      live **distance, elapsed time, and current pace** updating on the lock screen and in the
-      Dynamic Island while recording.
-- [ ] Bridge the JS recorder → native: push periodic stat updates from `GeoTracker` to the
-      Live Activity (via a small Capacitor plugin or a `@capacitor-community` Live Activities
-      package), and **end** the activity when the run is saved/stopped.
-- [ ] App icon + accent styling to match the gold/dark TEAM 3332 brand.
+- [x] Build an **ActivityKit Live Activity** widget extension in the iOS project (iOS 16.1+)
+      (June 2026, 618g): live **distance, elapsed time, and pace/mph** on the lock-screen banner
+      and the Dynamic Island (compact + expanded + minimal). Swift source written
+      (`RunActivityAttributes.swift`, `RunLiveActivity.swift`, `Team3332WidgetBundle.swift`);
+      **Xcode target still needs to be created on the Mac — see `mobile/LIVE-ACTIVITY-SETUP.md`.**
+- [x] Bridge the JS recorder → native (June 2026, 618g): a custom Capacitor plugin
+      (`LiveActivityPlugin.swift` + `.m`, exposed to JS as `LiveActivity`) with a guarded JS
+      helper in `app.jsx` that **starts** the activity on record, **updates** distance/time/pace
+      once a second, and **ends** it when the run stops or the screen is left. No-op on web,
+      Android, and pre-16.1 (mirrors the GeoTracker registerPlugin guard).
+- [x] Accent styling to match the gold/dark TEAM 3332 brand (gold `#D4AF37` on dark `#0B0F14`).
+- [ ] **Remaining (Mac/Xcode):** create the Widget Extension target, set `NSSupportsLiveActivities`,
+      add the shared attributes file to both targets, then build + on-device check. See the setup doc.
 - [ ] Android equivalent later: a foreground-service **ongoing notification** with live stats
       (Android has no Live Activities; the persistent notification is the analog).
 - Note: today the app already shows a **persistent "TEAM 3332 — run in progress" notification**
