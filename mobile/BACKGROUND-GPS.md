@@ -1,6 +1,13 @@
 # TEAM 3332 — Background GPS (screen-locked run tracking)
 
-Status as of **June 18, 2026**: code wired, **needs a device build + walk-test to confirm.**
+Status as of **June 18, 2026**: ✅ **VERIFIED ON DEVICE.** Built to a physical iPhone (free
+personal team, Ernest Smith signing), `registerPlugin` confirmed `true` in the native
+webview, and a lock-and-walk test passed — the route filled in the distance walked while the
+screen was locked. Background screen-locked tracking works.
+
+Note for next time: the fix only takes effect after `npm run sync` regenerates `www/`
+(copies `capacitor.js` + the loader-bearing `index.html`). Building without re-running sync
+ships a stale `www/` and `registerPlugin` reads `false`.
 
 ## The one-line problem
 

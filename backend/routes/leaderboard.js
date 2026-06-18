@@ -16,8 +16,13 @@ router.get('/', requireAuth, (req, res) => {
   if (period === 'weekly')  dateFilter = `AND a.logged_at >= datetime('now', '-7 days')`;
   if (period === 'monthly') dateFilter = `AND a.logged_at >= datetime('now', 'start of month')`;
 
+  // Parameterized to avoid SQL injection — the value is bound, not interpolated.
+  const params = [];
   let paceFilter = '';
-  if (paceGroup !== 'all') paceFilter = `AND u.pace_group = '${paceGroup}'`;
+  if (paceGroup !== 'all') {
+    paceFilter = 'AND u.pace_group = ?';
+    params.push(paceGroup);
+  }
 
   const rows = db.prepare(`
     SELECT
@@ -41,7 +46,7 @@ router.get('/', requireAuth, (req, res) => {
     GROUP BY u.id
     ORDER BY total_miles DESC
     LIMIT ?
-  `).all(limit);
+  `).all(...params, limit);
 
   // Tag which entry is the current user
   const ranked = rows.map((r, i) => ({
