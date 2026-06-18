@@ -139,6 +139,14 @@ You do not need to spend money on ads, designers, or infrastructure to get to yo
 
 Features that aren't launch-blockers but raise the product to "real running app" quality.
 
+### Reliability ✅ in progress
+- [x] **Surface GPS errors during recording** (June 2026, 618f): GPS failures arrive on async
+      watch callbacks that React's ErrorBoundary can't catch, so a mid-run signal loss or
+      permission revocation used to be silent (timer kept ticking, distance frozen). The recorder
+      now shows a persistent red banner over the recording screen — "GPS signal lost" or "Location
+      access turned off" — and clears it automatically when fixes resume. `denied` still also
+      fires the existing toast. Pure `recGpsAlert(kind)` helper; works native + web.
+
 ### Lock-screen Live Activity (iOS) — runner-facing
 *Goal: a Strava/Nike-style live card on the lock screen + Dynamic Island during a run.*
 

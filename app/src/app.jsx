@@ -761,6 +761,15 @@ function recorderStep(st, fix) {
   };
 }
 
+// Recording-time GPS failure → user-facing banner text. GPS errors arrive on async watch
+// callbacks, which React error boundaries can't catch, so the recorder surfaces them through
+// state instead (see RecordRun's gpsAlert). Pure → node-checkable. (618f)
+function recGpsAlert(kind) {
+  return kind === 'denied'
+    ? '⚠️ Location access turned off — distance is paused. Re-enable location to keep recording.'
+    : '⚠️ GPS signal lost — distance may pause until it comes back.';
+}
+
 function fmtClock(secs) {
   const h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60), s = secs%60;
   return h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${m}:${String(s).padStart(2,'0')}`;
@@ -1125,6 +1134,7 @@ function RecordRun({ onClose, onSaved, onToast }) {
   const [phase, setPhase] = useState('idle');     // idle | recording | review
   const [actType, setActType] = useState('Run');
   const [gpsStatus, setGpsStatus] = useState('waiting'); // waiting | ready | denied | error
+  const [gpsAlert, setGpsAlert] = useState(null);  // {kind,msg} shown while recording if GPS fails
   const [elapsed, setElapsed] = useState(0);
   const [meters, setMeters] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -1164,13 +1174,21 @@ function RecordRun({ onClose, onSaved, onToast }) {
   const start = () => {
     stRef.current = { meters: 0, last: null, points: [] };
     startRef.current = new Date();
-    setMeters(0); setElapsed(0);
+    setMeters(0); setElapsed(0); setGpsAlert(null);
     watchRef.current = GeoTracker.startRecording(
       fix => {
         stRef.current = recorderStep(stRef.current, fix);
         setMeters(stRef.current.meters);
+        // A good fix arrived → clear any standing GPS alert (recovery). Functional form
+        // returns the same ref when there's nothing to clear so React skips the re-render.
+        setGpsAlert(prev => (prev ? null : prev));
       },
-      kind => { if (kind === 'denied') onToast('Location access is off — turn it on to record your route.'); }
+      // GPS errors come back on async callbacks the ErrorBoundary can't see, so surface them
+      // here: a persistent banner during recording, plus the existing toast for denial. (618f)
+      kind => {
+        setGpsAlert({ kind, msg: recGpsAlert(kind) });
+        if (kind === 'denied') onToast('Location access is off — turn it on to record your route.');
+      }
     );
     timerRef.current = setInterval(() => {
       setElapsed(Math.round((Date.now() - startRef.current.getTime()) / 1000));
@@ -1252,6 +1270,14 @@ function RecordRun({ onClose, onSaved, onToast }) {
       {phase === 'recording' && (
         <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column'}}>
           <LiveRouteMap points={stRef.current.points} />
+          {gpsAlert && (
+            <div role="alert" style={{position:'absolute',top:0,left:0,right:0,zIndex:3,
+              padding:'calc(10px + env(safe-area-inset-top)) 16px 10px',
+              background:'rgba(231,76,60,0.94)',color:'#fff',fontSize:'0.82rem',fontWeight:600,
+              textAlign:'center',lineHeight:1.4}}>
+              {gpsAlert.msg}
+            </div>
+          )}
           <div style={{position:'relative',zIndex:2,marginTop:'auto',width:'100%',display:'flex',justifyContent:'center',
             padding:'18px 16px calc(22px + env(safe-area-inset-bottom)) 16px'}}>
             <div style={{textAlign:'center',width:'100%',maxWidth:420,background:'rgba(15,20,32,0.62)',backdropFilter:'blur(10px)',
