@@ -35,6 +35,20 @@ async function main() {
     copied++;
   }
 
+  // Bundle the Capacitor core runtime (registerPlugin, etc.) into www/. The no-build
+  // web app never imports @capacitor/core, so the native WKWebView has no registerPlugin
+  // and background GPS can't bind. index.html's native-only head loader pulls this file
+  // (gated so it never loads on the web). Copied from node_modules so it always matches
+  // the installed @capacitor/core version. (618 — background GPS)
+  const capCore = path.resolve(here, 'node_modules', '@capacitor', 'core', 'dist', 'capacitor.js');
+  if (await exists(capCore)) {
+    await cp(capCore, path.join(wwwDir, 'capacitor.js'));
+    copied++;
+  } else {
+    console.warn('⚠ @capacitor/core runtime not found at node_modules/@capacitor/core/dist/capacitor.js');
+    console.warn('  run `npm install` in mobile/ first — background GPS needs this file.');
+  }
+
   const list = await readdir(wwwDir);
   console.log(`✓ synced ${copied} item(s) into www/: ${list.join(', ')}`);
   console.log('  next: npx cap sync   (then npx cap run ios)');

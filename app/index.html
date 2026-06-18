@@ -11,6 +11,26 @@
   <script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js"></script>
+  <!-- Native-only: load the Capacitor core runtime so window.Capacitor.registerPlugin
+       exists in the WKWebView. This no-build app never bundles @capacitor/core, so the
+       native bridge injects window.Capacitor (isNativePlatform works) but NOT
+       registerPlugin — which left GeoTracker falling back to navigator.geolocation and
+       killed background/locked-screen tracking (see handoff617d). sync-www.mjs copies
+       capacitor.js into www/ from node_modules. Gated to native + written synchronously
+       (document.write during head parse) so registerPlugin is ready before the app
+       script runs. On the web (team3332.com) Capacitor is absent, so this never fires
+       and there is zero web impact. (618 — background GPS) -->
+  <script>
+    (function(){
+      try {
+        var C = window.Capacitor;
+        if (C && typeof C.isNativePlatform === 'function' && C.isNativePlatform()
+            && typeof C.registerPlugin !== 'function') {
+          document.write('<script src="capacitor.js"><\/script>');
+        }
+      } catch (e) { /* never block boot on the runtime loader */ }
+    })();
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
