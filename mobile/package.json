@@ -4,12 +4,13 @@
   "private": true,
   "description": "Capacitor native wrapper for the TEAM 3332 app (iOS + Android).",
   "scripts": {
-    "sync:www": "node sync-www.mjs",
-    "sync": "node sync-www.mjs && npx cap sync",
+    "build:app": "npm --prefix .. run build:app",
+    "sync:www": "npm run build:app && node sync-www.mjs",
+    "sync": "npm run build:app && node sync-www.mjs && npx cap sync",
     "open:ios": "npx cap open ios",
     "open:android": "npx cap open android",
-    "run:ios": "node sync-www.mjs && npx cap sync ios && npx cap run ios",
-    "run:android": "node sync-www.mjs && npx cap sync android && npx cap run android"
+    "run:ios": "npm run build:app && node sync-www.mjs && npx cap sync ios && npx cap run ios",
+    "run:android": "npm run build:app && node sync-www.mjs && npx cap sync android && npx cap run android"
   },
   "dependencies": {
     "@capacitor-community/background-geolocation": "^1.2.26",

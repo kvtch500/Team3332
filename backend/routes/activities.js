@@ -67,6 +67,131 @@ router.get('/stats', requireAuth, (req, res) => {
   res.json({ ...stats, weekly_miles: weekly?.miles || 0, streak });
 });
 
+// GET /api/activities/progress — Strava-style progress data for the logged-in user:
+// totals, current streak, active calendar dates, best efforts, race predictions, and a
+// 6-month trend. Defined BEFORE '/:id' so 'progress' isn't captured as an activity id.
+//
+// IMPORTANT: best efforts are ESTIMATED. Route points are stored as [lat,lon] without
+// per-point timestamps, so we can't compute true fastest-segment splits. Instead, for each
+// benchmark distance we take the fastest even-pace projection from any run that covered at
+// least that far. (Roadmap: store [lat,lon,t] to enable real segment best efforts.)
+router.get('/progress', requireAuth, (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT id, type, distance, pace, duration, logged_at
+    FROM activities WHERE user_id = ?
+    ORDER BY logged_at ASC
+  `).all(req.user.id);
+
+  // "HH:MM:SS" | "MM:SS" -> seconds (mirrors the frontend durSecs helper)
+  const toSecs = (dur) => {
+    if (!dur) return 0;
+    const p = String(dur).trim().split(':').map(Number);
+    if (p.some(isNaN)) return 0;
+    if (p.length === 3) return p[0] * 3600 + p[1] * 60 + p[2];
+    if (p.length === 2) return p[0] * 60 + p[1];
+    return 0;
+  };
+  // Effective time for an activity: prefer recorded duration, else pace(min/mi) * distance.
+  const actSecs = (a) => {
+    let s = toSecs(a.duration);
+    if (!s && a.pace) s = toSecs(a.pace) * (parseFloat(a.distance) || 0);
+    return s;
+  };
+
+  // ── Totals ──────────────────────────────────────────────
+  let total_miles = 0, total_time_secs = 0;
+  for (const a of rows) { total_miles += parseFloat(a.distance) || 0; total_time_secs += actSecs(a); }
+  const total_runs = rows.length;
+
+  // ── Active dates (distinct YYYY-MM-DD) + current streak ──
+  const dateSet = new Set(rows.map(a => String(a.logged_at).slice(0, 10)));
+  const active_dates = [...dateSet].sort();
+  const isoDay = (dt) => dt.toISOString().slice(0, 10);
+  let streak = 0;
+  const cur = new Date();
+  if (!dateSet.has(isoDay(cur))) cur.setDate(cur.getDate() - 1); // grace: no run yet today
+  while (dateSet.has(isoDay(cur))) { streak++; cur.setDate(cur.getDate() - 1); }
+
+  // ── Best efforts (Run only), estimated by even-pace projection ──
+  const BENCHMARKS = [
+    ['½ mile', 0.5], ['1 mile', 1], ['2 mile', 2], ['5K', 3.10686], ['10K', 6.21371],
+    ['15K', 9.32057], ['10 mile', 10], ['20K', 12.4274], ['½ Marathon', 13.1094],
+    ['30K', 18.6411], ['Marathon', 26.2188], ['50K', 31.0686], ['100 Miler', 100],
+  ];
+  const runs = rows.filter(a => (a.type || 'Run') === 'Run' && actSecs(a) > 0 && (parseFloat(a.distance) || 0) > 0);
+  const best_efforts = BENCHMARKS.map(([label, miles]) => {
+    let best = null;
+    for (const a of runs) {
+      const dist = parseFloat(a.distance);
+      if (dist < miles * 0.995) continue;                 // must have covered at least this far
+      const projected = actSecs(a) * (miles / dist);      // even-pace projection to the benchmark
+      if (!best || projected < best.time_secs) {
+        best = {
+          time_secs: Math.round(projected),
+          pace_secs_per_mi: Math.round(projected / miles),
+          activity_id: a.id,
+          logged_at: a.logged_at,
+          estimated: dist > miles * 1.02,                 // exact-ish if the run was ~this distance
+        };
+      }
+    }
+    return { label, miles, best };
+  });
+
+  // ── Race predictions (Riegel: T2 = T1 * (D2/D1)^1.06) ──
+  const RIEGEL = 1.06;
+  const have = best_efforts.filter(b => b.best);
+  const underHalf = have.filter(b => b.miles <= 13.2);
+  const pool = underHalf.length ? underHalf : have;       // prefer a base at/under a half marathon
+  let base = null;
+  for (const b of pool) { if (!base || b.miles > base.miles) base = b; } // longest reliable effort
+  let predictions = null, prediction_base = null;
+  if (base) {
+    prediction_base = { label: base.label, miles: base.miles, time_secs: base.best.time_secs };
+    const RACES = [['5K', 3.10686], ['10K', 6.21371], ['½ Marathon', 13.1094], ['Marathon', 26.2188]];
+    predictions = RACES.map(([label, miles]) => {
+      const t = base.best.time_secs * Math.pow(miles / base.miles, RIEGEL);
+      return { label, miles, time_secs: Math.round(t), pace_secs_per_mi: Math.round(t / miles) };
+    });
+  }
+
+  // ── Monthly trend: last 6 months (distance + active time + runs) ──
+  const monthMap = new Map();
+  for (const a of rows) {
+    const key = String(a.logged_at).slice(0, 7); // YYYY-MM
+    const m = monthMap.get(key) || { distance: 0, time_secs: 0, runs: 0 };
+    m.distance += parseFloat(a.distance) || 0;
+    m.time_secs += actSecs(a);
+    m.runs += 1;
+    monthMap.set(key, m);
+  }
+  const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthly = [];
+  const nowM = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const dt = new Date(nowM.getFullYear(), nowM.getMonth() - i, 1);
+    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+    const m = monthMap.get(key) || { distance: 0, time_secs: 0, runs: 0 };
+    monthly.push({
+      month: key, label: MONTH_LABELS[dt.getMonth()],
+      distance: Math.round(m.distance * 10) / 10, time_secs: m.time_secs, runs: m.runs,
+    });
+  }
+
+  res.json({
+    total_runs,
+    total_miles: Math.round(total_miles * 10) / 10,
+    total_time_secs,
+    streak,
+    active_dates,
+    best_efforts,
+    predictions,
+    prediction_base,
+    monthly,
+  });
+});
+
 // POST /api/activities/parse-gpx — Parse a GPX file, return pre-filled fields (does NOT save)
 // Body: raw GPX XML text. Frontend shows the parsed values for review before saving.
 router.post('/parse-gpx', requireAuth, express.text({ type: '*/*', limit: '15mb' }), (req, res) => {

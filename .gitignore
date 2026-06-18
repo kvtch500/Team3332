@@ -3,7 +3,16 @@ backend/.env
 backend/db/team3332.db
 
 # Dependencies
+node_modules/
 backend/node_modules/
+mobile/node_modules/
+
+# Frontend build note: app/app.js IS committed on purpose — it is the deployed,
+# pre-transpiled bundle (built from app/src/app.jsx via `npm run build:app`).
+# Do NOT add it here.
 
 # OS files
 .DS_Store
+
+# Local rollback backup (frontend pre-build) — not for the repo
+*.prebuild.bak

@@ -135,6 +135,38 @@ You do not need to spend money on ads, designers, or infrastructure to get to yo
 
 ---
 
+## Post-MVP / Native Polish (backlog)
+
+Features that aren't launch-blockers but raise the product to "real running app" quality.
+
+### Lock-screen Live Activity (iOS) — runner-facing
+*Goal: a Strava/Nike-style live card on the lock screen + Dynamic Island during a run.*
+
+- [ ] Build an **ActivityKit Live Activity** widget extension in the iOS project (iOS 16.1+):
+      live **distance, elapsed time, and current pace** updating on the lock screen and in the
+      Dynamic Island while recording.
+- [ ] Bridge the JS recorder → native: push periodic stat updates from `GeoTracker` to the
+      Live Activity (via a small Capacitor plugin or a `@capacitor-community` Live Activities
+      package), and **end** the activity when the run is saved/stopped.
+- [ ] App icon + accent styling to match the gold/dark TEAM 3332 brand.
+- [ ] Android equivalent later: a foreground-service **ongoing notification** with live stats
+      (Android has no Live Activities; the persistent notification is the analog).
+- Note: today the app already shows a **persistent "TEAM 3332 — run in progress" notification**
+      on the lock screen and keeps tracking while locked (verified on device, 618b). The Live
+      Activity is the *richer* upgrade — live stats, not just a static notification.
+
+### Progress tab (under "Me") — Strava-style ✅ built (June 2026)
+- [x] Streak, total runs/miles/time, active-day **calendar with gold stars**.
+- [x] **Best efforts** (½ mi → 100 miler) and **race-time predictions** (Riegel).
+- [x] **6-month** distance + active-time trend chart (vs prior months).
+- [ ] **Follow-up — timestamped GPS tracks:** best efforts are currently *estimated* from each
+      run's overall distance + time, because route points are stored as `[lat,lon]` only. Add a
+      timestamp to each recorded point (`[lat,lon,t]`) in `GeoTracker` + the GPX parser so we can
+      compute **true fastest-segment** best efforts (the real Strava behavior). Small recorder
+      change; backwards-compatible (old activities keep the estimate).
+
+---
+
 ## What Claude Can Build With You
 
 Every item on this roadmap can be built in Cowork. Bring each week's task when you're ready and we'll knock them out one by one.

@@ -13,8 +13,9 @@ const here   = path.dirname(fileURLToPath(import.meta.url));
 const srcDir = path.resolve(here, '..', 'app');     // the live web app
 const wwwDir = path.resolve(here, 'www');           // Capacitor webDir
 
-// Files/folders to bundle from ../app. index.html is the entry point.
-const INCLUDE = ['index.html', 'privacy.html', 'terms.html', 'reset-password.html', 'public'];
+// Files/folders to bundle from ../app. index.html is the entry point, app.js is the
+// pre-transpiled app body (built from ../app/src/app.jsx by `npm run build:app`).
+const INCLUDE = ['index.html', 'app.js', 'privacy.html', 'terms.html', 'reset-password.html', 'public'];
 
 async function exists(p) { try { await stat(p); return true; } catch { return false; } }
 
@@ -26,6 +27,14 @@ async function main() {
 
   await rm(wwwDir, { recursive: true, force: true });
   await mkdir(wwwDir, { recursive: true });
+
+  // app/app.js is the pre-transpiled bundle the native app actually runs. If it's missing,
+  // the build step was skipped and the synced app will black-screen — fail loudly.
+  if (!(await exists(path.join(srcDir, 'app.js')))) {
+    console.error('✗ ../app/app.js not found — run `npm run build:app` from the repo root first.');
+    console.error('  (app.js is generated from app/src/app.jsx by esbuild; the native app needs it.)');
+    process.exit(1);
+  }
 
   let copied = 0;
   for (const name of INCLUDE) {

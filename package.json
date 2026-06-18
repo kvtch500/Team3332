@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "scripts": {
     "start": "cd backend && node server.js",
-    "install": "cd backend && npm install"
+    "install": "cd backend && npm install",
+    "build:app": "node app/build.mjs",
+    "build": "node app/build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.0"
   }
 }
