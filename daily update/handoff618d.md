@@ -10,9 +10,11 @@ session: 8 (continues handoff618c)
 
 ## Where Things Stand
 Two things this session, on top of 618c's frontend pre-build:
-1. **Phase 1 pre-build is confirmed working on device** — Ernest built to the iPhone (KATCH)
-   and the app boots **noticeably faster** with no Babel. The pre-build track's core win is
-   banked. (Commit/push of the 618c source + generated `app/app.js` still pending — see below.)
+1. **Phase 1 pre-build is confirmed working on device AND shipped** — Ernest built to the iPhone
+   (KATCH); the app boots **noticeably faster** with no Babel. On the Mac, `npm run build:app`
+   regenerated `app/app.js` (107.6 KB), and **everything (618c + 618d) was committed and pushed**
+   from the repo root — web app + backend `/progress` route are deployed. The pre-build track's
+   core win is banked.
 2. **New feature: a Strava-style "Progress" tab** under the "Me"/Profile screen — streak,
    active-day calendar with gold stars, best efforts, race predictions, and a 6-month trend.
    Backend logic is **tested green in-sandbox**; the frontend is built but (as always) needs a
@@ -95,9 +97,9 @@ Reminder (FRONTEND-BUILD.md): never push `index.html`/`app.jsx` without a freshl
 `app/app.js`. Rollback net = `app/index.html.prebuild.bak`.
 
 ## Open Items (priority order)
-- **Commit + push 618c + 618d** (above) — web app is running the new `index.html` locally but the
-  repo/live deploy still needs the build committed. The backend `/progress` route must be deployed
-  for the Progress tab to load data.
+- ~~Commit + push 618c + 618d~~ ✅ **DONE** — built, committed, and pushed from the Mac; web app
+  + backend `/progress` deployed. (Last manual step left if not already done: open the app on
+  KATCH → **Me → Progress** to eyeball the calendar/trend/predictions/best-efforts on device.)
 - **Timestamped GPS points** (`[lat,lon,t]`) → true fastest-segment best efforts (currently
   estimated). Small change in `GeoTracker` + GPX parser; backwards-compatible.
 - **iOS Live Activity** (ActivityKit) — lock-screen live stats; see ROADMAP backlog.
