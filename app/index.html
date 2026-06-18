@@ -1646,7 +1646,15 @@ function recorderStep(st, fix) {
     ...st,
     meters: st.meters + d,
     last: { lat, lon, t },
-    points: st.points.length < 4000 ? [...st.points, [lat, lon]] : st.points,
+    // Keep the drawn route bounded without freezing the live trail. Before, once we hit
+    // 4000 points we dropped every new fix — so on long activities the polyline stopped
+    // advancing while distance kept counting. Now, at the cap we halve density (keep every
+    // other point, preserving the start at index 0) and append the newest fix, so the whole
+    // route stays represented and the tip keeps moving. Distance (meters) is computed from
+    // `last`, independent of this array, so it's unaffected. (618)
+    points: st.points.length < 4000
+      ? [...st.points, [lat, lon]]
+      : [...st.points.filter((_, i) => i % 2 === 0), [lat, lon]],
   };
 }
 

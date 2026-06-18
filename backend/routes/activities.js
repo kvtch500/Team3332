@@ -114,13 +114,15 @@ router.patch('/:id', requireAuth, (req, res) => {
   const existing = db.prepare('SELECT * FROM activities WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
   if (!existing) return res.status(404).json({ error: 'Activity not found' });
 
+  // Coalesce undefined → null so a partial body (e.g. notes-only) doesn't crash the bind.
+  // With null, the SQL COALESCE(?, col) keeps the existing column value. (618)
   db.prepare(`
     UPDATE activities SET
       name = COALESCE(?, name), distance = COALESCE(?, distance),
       pace = COALESCE(?, pace), duration = COALESCE(?, duration),
       calories = COALESCE(?, calories), notes = COALESCE(?, notes)
     WHERE id = ?
-  `).run(name, distance, pace, duration, calories, notes, req.params.id);
+  `).run(name ?? null, distance ?? null, pace ?? null, duration ?? null, calories ?? null, notes ?? null, req.params.id);
 
   const activity = db.prepare('SELECT * FROM activities WHERE id = ?').get(req.params.id);
   res.json({ activity });
