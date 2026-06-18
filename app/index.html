@@ -3595,7 +3595,33 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+/* Error boundary — catches render/lifecycle throws anywhere in the tree and
+   shows a branded fallback + Reload instead of a silent black screen. The boot
+   watchdog below only covers load failures (React/Babel never mounting); this
+   covers errors thrown *after* the app has mounted. */
+class ErrorBoundary extends React.Component {
+  constructor(props){ super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError(){ return { hasError: true }; }
+  componentDidCatch(error, info){
+    try { console.error('App crashed (caught by ErrorBoundary):', error, info); } catch(e){}
+  }
+  render(){
+    if(!this.state.hasError) return this.props.children;
+    return (
+      <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'24px',textAlign:'center',fontFamily:'Barlow,system-ui,sans-serif',background:'#080B12',color:'#F0F4FF'}}>
+        <div style={{maxWidth:'340px'}}>
+          <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:900,fontSize:'2rem',letterSpacing:'1px',marginBottom:'14px'}}>TEAM <span style={{color:'#D4AF37'}}>3332</span></div>
+          <div style={{fontSize:'0.95rem',lineHeight:1.55,color:'#8A9BB5',marginBottom:'22px'}}>Something went wrong. Please reload; if it keeps happening, try again shortly.</div>
+          <button onClick={()=>location.reload()} style={{background:'#D4AF37',color:'#080B12',border:'none',borderRadius:'10px',padding:'12px 26px',fontWeight:700,fontSize:'0.95rem',cursor:'pointer'}}>Reload</button>
+        </div>
+      </div>
+    );
+  }
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <ErrorBoundary><App /></ErrorBoundary>
+);
 </script>
 <script>
 /* Boot watchdog — plain JS so it runs even if React/Babel fail to load.
