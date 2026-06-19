@@ -51,6 +51,8 @@ private struct LockScreenView: View {
         .padding(.vertical, 14)
         .activityBackgroundTint(brandDark)
         .activitySystemActionForegroundColor(brandGold)
+        // Tapping the lock-screen card opens team3332://run → the app's record screen. (619)
+        .widgetURL(URL(string: "team3332://run"))
     }
 
     // In-progress: live distance + self-counting timer + secondary metric.

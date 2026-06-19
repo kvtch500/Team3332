@@ -19,6 +19,9 @@ import React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import L from 'leaflet';
 import { Capacitor, registerPlugin } from '@capacitor/core';
+// Aliased to CapApp — there is a React component named `App` in this file. Used only for
+// the Live Activity deep-link (team3332://run → record screen). (619)
+import { App as CapApp } from '@capacitor/app';
 /* eslint-disable */
 
 const { useState, useEffect, useContext, createContext, useCallback, useRef } = React;
@@ -2852,6 +2855,22 @@ function App() {
     } else {
       setBooting(false);
     }
+  }, []);
+
+  // Live Activity deep-link: tapping the lock-screen card / Dynamic Island opens
+  // team3332://run, which jumps straight to the record screen. Handles both warm taps
+  // (appUrlOpen while running) and cold launch (getLaunchUrl). No-op off native. (619)
+  useEffect(() => {
+    if (!IS_NATIVE_APP) return;
+    let handle = null;
+    const open = (url) => {
+      if (typeof url === 'string' && url.indexOf('team3332://run') === 0) setShowRecord(true);
+    };
+    try {
+      CapApp.getLaunchUrl().then(r => { if (r && r.url) open(r.url); }).catch(() => {});
+      CapApp.addListener('appUrlOpen', (e) => open(e && e.url)).then(h => { handle = h; }).catch(() => {});
+    } catch (e) { /* never block the app on deep-link wiring */ }
+    return () => { try { handle && handle.remove && handle.remove(); } catch (e) {} };
   }, []);
 
   const showToast = msg => setToast(msg);

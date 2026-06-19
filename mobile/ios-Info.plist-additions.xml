@@ -26,3 +26,18 @@
 <!-- Motion (only if the production plugin's activity/motion detection is enabled) -->
 <key>NSMotionUsageDescription</key>
 <string>TEAM 3332 uses motion data to detect when you start and stop moving, improving battery life and tracking accuracy.</string>
+
+<!-- Custom URL scheme for the Live Activity deep-link (619): tapping the lock-screen run
+     card / Dynamic Island opens team3332://run, which the app handles via @capacitor/app's
+     appUrlOpen to jump to the record screen. Required, or the widgetURL tap does nothing. -->
+<key>CFBundleURLTypes</key>
+<array>
+  <dict>
+    <key>CFBundleURLName</key>
+    <string>com.team3332.app</string>
+    <key>CFBundleURLSchemes</key>
+    <array>
+      <string>team3332</string>
+    </array>
+  </dict>
+</array>
