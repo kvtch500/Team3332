@@ -35,12 +35,13 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         set { _activity = newValue }
     }
 
-    private func state(from call: CAPPluginCall) -> RunActivityAttributes.ContentState {
+    private func state(from call: CAPPluginCall, finished: Bool = false) -> RunActivityAttributes.ContentState {
         RunActivityAttributes.ContentState(
             distanceMiles: call.getDouble("distanceMiles") ?? 0,
             elapsedSeconds: call.getInt("elapsedSeconds") ?? 0,
             metricValue: call.getString("metricValue") ?? "—",
-            metricLabel: call.getString("metricLabel") ?? ""
+            metricLabel: call.getString("metricLabel") ?? "",
+            isFinished: finished
         )
     }
 
@@ -90,9 +91,14 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func end(_ call: CAPPluginCall) {
         guard #available(iOS 16.2, *), let act = activity else { call.resolve(); return }
-        let final = state(from: call)
+        // An end() WITH final stats (the normal "stop run" path) shows a brief ~4s
+        // "Run complete" flash; a bare end() with no stats (the unmount-safety clear when
+        // the user leaves mid-run) just dismisses immediately, with no flash. (619 polish)
+        let hasStats = (call.getDouble("distanceMiles") != nil) || (call.getInt("elapsedSeconds") != nil)
+        let final = state(from: call, finished: hasStats)
+        let policy: ActivityUIDismissalPolicy = hasStats ? .after(Date().addingTimeInterval(4)) : .immediate
         Task {
-            await act.end(.init(state: final, staleDate: nil), dismissalPolicy: .immediate)
+            await act.end(.init(state: final, staleDate: nil), dismissalPolicy: policy)
             activity = nil
             call.resolve()
         }

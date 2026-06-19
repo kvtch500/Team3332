@@ -24,6 +24,10 @@ struct RunActivityAttributes: ActivityAttributes {
         var metricValue: String
         /// Label for that metric, e.g. "/MI" or "MPH".
         var metricLabel: String
+        /// True only for the final "Run complete" state pushed by end(): the widget swaps to a
+        /// completion treatment and freezes the timer for the brief flash before dismissal.
+        /// Always set explicitly by the plugin. Defaults false. (619 polish)
+        var isFinished: Bool = false
     }
 
     /// "Run" or "Walk" — set once when the activity starts.
