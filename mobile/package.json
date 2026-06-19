@@ -6,10 +6,10 @@
   "scripts": {
     "build:app": "npm --prefix .. run build:app",
     "sync:www": "npm run build:app && node sync-www.mjs",
-    "sync": "npm run build:app && node sync-www.mjs && npx cap sync",
+    "sync": "npm run build:app && node sync-www.mjs && npx cap sync && node patch-native-config.mjs",
     "open:ios": "npx cap open ios",
     "open:android": "npx cap open android",
-    "run:ios": "npm run build:app && node sync-www.mjs && npx cap sync ios && npx cap run ios",
+    "run:ios": "npm run build:app && node sync-www.mjs && npx cap sync ios && node patch-native-config.mjs && npx cap run ios",
     "run:android": "npm run build:app && node sync-www.mjs && npx cap sync android && npx cap run android"
   },
   "dependencies": {

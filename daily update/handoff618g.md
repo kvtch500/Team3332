@@ -8,6 +8,21 @@ session: 11 (continues handoff618f)
 
 # HANDOFF 618g — Thursday, June 18 2026 (session 11)
 
+## ✅ UPDATE (end of session): SHIPPED & WORKING ON DEVICE
+The Live Activity is **confirmed live on KATCH's lock screen** — gold TEAM 3332 card with
+distance / time / pace, updating ~1×/sec, clearing on END. Getting there took the full Xcode
+wiring (done) plus two fixes found on device:
+1. **iOS 16.2 gate** — the ActivityKit content APIs (`request(attributes:content:)`, `update`,
+   `end(_:dismissalPolicy:)`) are 16.2+, not 16.1. Plugin now gated at 16.2.
+2. **packageClassList (the big one)** — Capacitor 6 only registers iOS plugins listed in
+   `ios/App/App/capacitor.config.json` → `packageClassList`. The `CAP_PLUGIN` macro alone did
+   NOT register it; the plugin was invisible (no logs, no calls) until `LiveActivityPlugin` was
+   added to that list. Since `cap sync` regenerates the list from npm packages only, this is now
+   auto-restored by **`mobile/patch-native-config.mjs`**, wired into `npm run sync`.
+
+Diagnostic `print()` logging that was added to chase this has been **removed** — the committed
+plugin source is clean.
+
 ## Where Things Stand
 618f (surface GPS errors during recording) is **committed and pushed** — confirmed at the top of
 `origin/main` (commit `fcd33d8`, working tree was clean at session start). The stale 618d note
@@ -63,31 +78,36 @@ section updated.
 **This session changed `app/src/app.jsx` → must rebuild `app/app.js` before committing.** It also
 adds new Swift files that need a one-time Xcode setup.
 
+**First commit (done earlier this session):** `731da1a` shipped app.jsx + app.js + the staged
+native source + docs.
+
+**Second commit (do this — captures the on-device fixes):**
 ```bash
 cd "/Users/ernestsmith/Desktop/claude ai/3332"
-
-# 1. Rebuild the frontend bundle (app.jsx changed)
-npm run build:app
-
-# 2. Commit + push from the repo ROOT (path has a space)
-git add app/src/app.jsx app/app.js ROADMAP.md \
-        mobile/LIVE-ACTIVITY-SETUP.md mobile/ios-native-src \
+git add ROADMAP.md \
+        mobile/LIVE-ACTIVITY-SETUP.md \
+        mobile/ios-native-src/App/LiveActivityPlugin.swift \
+        mobile/patch-native-config.mjs \
+        mobile/package.json \
         "daily update/handoff618g.md"
-git commit -m "iOS Live Activity: lock-screen/Dynamic Island live run stats (plugin + widget + JS bridge)"
-git push                    # deploys web app (JS bridge is a no-op on web, so site is unaffected)
-
-# 3. One-time Xcode wiring — FOLLOW mobile/LIVE-ACTIVITY-SETUP.md
-#    (create Widget Extension target, NSSupportsLiveActivities=YES, add plugin files to App,
-#     tick RunActivityAttributes.swift into BOTH targets), then:
-cd mobile && npm run sync && npm run open:ios   # ⌘R onto KATCH
+git commit -m "Live Activity working on device: gate at iOS 16.2 + register in packageClassList (auto-restored on sync)"
+git push
 ```
+Note: `mobile/ios/` is gitignored, so the live Xcode project copies aren't committed — the
+committed source-of-truth in `mobile/ios-native-src/` + the patch script are what reproduce it.
+
+**The Xcode wiring is already done** (widget target created, files added, NSSupportsLiveActivities
+set, RunActivityAttributes in both targets). If the iOS project is ever regenerated (`cap add ios`),
+redo it from `mobile/LIVE-ACTIVITY-SETUP.md`.
 **Test on device:** record a run, lock the phone → the TEAM 3332 card should show on the lock
 screen / Dynamic Island with live distance·time·pace, updating ~1×/sec; hit END → it clears.
 Reminder (FRONTEND-BUILD.md): never push `index.html`/`app.jsx` without a fresh `app/app.js`.
 
 ## Open Items (priority order)
-- **Xcode wiring + device check for the Live Activity** (above) — the only thing between this code
-  and a working card. The Swift won't compile until the widget target exists.
+- **Live Activity: DONE & working on device.** Optional polish later: Dynamic Island expanded
+  layout tuning, an end-state ("Run complete") flash before dismiss, deep-link tap → open app to
+  the run. None blocking.
+- **Commit the second commit above** (16.2 + packageClassList fixes) if not already pushed.
 - **Still pending from 618e/f:** eyeball the Progress tab (real splits, no "est." on a fresh
   timestamped run) AND the 618f GPS-loss banner on device.
 - **Phase 2 frontend pre-build** (optional) — bundle React/Leaflet/@capacitor/core locally, retire
@@ -111,10 +131,13 @@ Reminder (FRONTEND-BUILD.md): never push `index.html`/`app.jsx` without a fresh 
   off-platform, so JS can ship before the native target is wired up (see `LiveActivity`).
 
 ## Start Here Next Time
-1. Confirm 618g committed/pushed, the Xcode widget target is wired (LIVE-ACTIVITY-SETUP.md), and
-   the Live Activity card shows/updates/clears on device.
-2. Then pick: **Phase 2 frontend pre-build** · Android ongoing-notification analog.
+1. Confirm the second commit (16.2 + packageClassList) is pushed. Live Activity is done/working.
+2. Then pick: **Phase 2 frontend pre-build** · Android ongoing-notification analog (the Live
+   Activity equivalent on Android) · Live Activity polish (Dynamic Island expanded view, end flash).
 3. Launch runway: paid Apple Dev → TestFlight → Android.
+4. **Key lesson banked:** any future custom native iOS plugin must be added to
+   `packageClassList` (now auto-handled by `mobile/patch-native-config.mjs` for LiveActivityPlugin;
+   extend the LOCAL_PLUGINS array there for new ones).
 
 ## Quick Reference
 - Live: https://team3332.com (app at /app, admin at /admin) · Repo: github.com/kvtch500/Team3332

@@ -60,10 +60,22 @@ Files in `mobile/ios-native-src/` (you'll attach them to targets below):
    > This is the #1 thing people miss. If only one target has it, you'll get
    > "cannot find type 'RunActivityAttributes' in scope".
 
-## Step 5 — Build, sync, run
+## Step 5 — Register the plugin in packageClassList (critical, Capacitor 6)
+
+Capacitor 6 registers iOS plugins from `ios/App/App/capacitor.config.json` → **`packageClassList`**.
+A `CAP_PLUGIN` macro alone is **not** enough — if `LiveActivityPlugin` isn't in that list, the
+plugin silently never loads and the card never appears (no error, no log).
+
+This is already automated: `npm run sync` runs `mobile/patch-native-config.mjs` after `cap sync`,
+which re-adds `LiveActivityPlugin` to the list (because `cap sync` regenerates it from npm packages
+only and would otherwise drop our local plugin every time). **If you ever sync with a bare
+`npx cap sync` instead of `npm run sync`, run `node patch-native-config.mjs` afterward**, or add
+`"LiveActivityPlugin"` to `packageClassList` by hand.
+
+## Step 6 — Build, sync, run
 
 ```bash
-cd mobile && npm run sync     # rebuilds app.js + syncs www into the native project
+cd mobile && npm run sync     # rebuilds app.js, syncs www, AND re-adds the plugin to packageClassList
 # then in Xcode: select the App scheme (not the widget) → ⌘R onto the KATCH device
 ```
 
@@ -79,8 +91,13 @@ cd mobile && npm run sync     # rebuilds app.js + syncs www into the native proj
 
 ## Notes / troubleshooting
 
-- **iOS only, 16.1+.** On web, Android, and older iOS the JS bridge is a silent no-op — nothing
+- **Card never appears + no logs at all** → the plugin isn't registered: check `packageClassList`
+  (Step 5). This was the gotcha during the 618g build — everything compiled and ran, but the plugin
+  was invisible until added to the list.
+- **iOS only, 16.2+.** On web, Android, and older iOS the JS bridge is a silent no-op — nothing
   to do and nothing breaks. (Android's live-stats analog is the existing foreground notification.)
+  (The ActivityKit content APIs we use — `request(attributes:content:)`, `update`, `end` — require
+  16.2, so the plugin is gated at 16.2.)
 - **"areActivitiesEnabled" false** → the user disabled Live Activities for the app in
   **Settings → TEAM 3332 → Live Activities**, or globally in **Settings → Face ID & Passcode**.
   The plugin resolves `started:false` and the run records normally without a card.
