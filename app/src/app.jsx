@@ -6,13 +6,19 @@
 //
 // Phase 2a (June 2026): React, ReactDOM and Leaflet are now BUNDLED into app.js
 // (esbuild bundle:true) instead of being loaded as CDN UMD globals — the web app boots
-// with zero CDN dependency for the rendering stack and works offline. They're imported
-// just below. window.Capacitor is still provided by the native head-loader: the
-// just-verified background-GPS path is deliberately left untouched here. Phase 2b will
-// bundle @capacitor/core and retire that loader, gated on on-device GPS re-testing.
+// with zero CDN dependency for the rendering stack and works offline.
+//
+// Phase 2b (June 2026): @capacitor/core is now bundled too, so `Capacitor` and
+// `registerPlugin` come from the import below instead of from `window.Capacitor` + the
+// native head-loader (both retired). The native iOS/Android runtime still injects the
+// low-level bridge at document-start, and the bundled registerPlugin proxies through it —
+// this is the canonical Capacitor setup. The 617d failure mode (window.Capacitor injected
+// WITHOUT registerPlugin) is gone because registerPlugin now ships in the bundle.
+// ⚠️ Background GPS (foreground + locked-screen) must be re-verified on device after this.
 import React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import L from 'leaflet';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 /* eslint-disable */
 
 const { useState, useEffect, useContext, createContext, useCallback, useRef } = React;
@@ -942,16 +948,16 @@ async function shareActivity(opts, onToast) {
 // Every fix is normalized to { lat, lon, accuracy, t } — the shape recorderStep wants.
 // ---------------------------------------------------------------------------
 const GeoTracker = (() => {
-  const Cap = (typeof window !== 'undefined') ? window.Capacitor : null;
-  // The native plugin path needs BOTH a native platform AND the core runtime's
-  // registerPlugin(). Some WKWebView loads inject window.Capacitor (so isNativePlatform
-  // works) WITHOUT registerPlugin — calling it then throws and blanks the whole app.
-  // Guard on it so the recorder cleanly falls back to navigator.geolocation. (617d)
-  const canUsePlugins = !!(Cap && typeof Cap.registerPlugin === 'function');
-  const isNative = !!(Cap && typeof Cap.isNativePlatform === 'function' && Cap.isNativePlatform() && canUsePlugins);
+  // @capacitor/core is bundled (Phase 2b), so registerPlugin is always defined: on device
+  // it proxies through the native-injected bridge; in the browser it's a harmless stub we
+  // never reach because isNative is false. We still gate the native plugin path on a real
+  // native platform so the web keeps falling back to navigator.geolocation, exactly as before.
+  // (The 617d "window.Capacitor without registerPlugin" crash can no longer happen.)
+  const canUsePlugins = (typeof registerPlugin === 'function');
+  const isNative = !!(canUsePlugins && Capacitor && typeof Capacitor.isNativePlatform === 'function' && Capacitor.isNativePlatform());
   let _bg = null, _fg = null;
-  const bg = () => { if (!_bg && Cap) _bg = Cap.registerPlugin('BackgroundGeolocation'); return _bg; };
-  const fg = () => { if (!_fg && Cap) _fg = Cap.registerPlugin('Geolocation'); return _fg; };
+  const bg = () => { if (!_bg) _bg = registerPlugin('BackgroundGeolocation'); return _bg; };
+  const fg = () => { if (!_fg) _fg = registerPlugin('Geolocation'); return _fg; };
 
   // 'denied' if the user refused location, otherwise 'error'
   const classify = (e) => {
@@ -1028,19 +1034,17 @@ const GeoTracker = (() => {
 //   • Native iOS 16.1+ (Capacitor): drives the LiveActivityPlugin (ActivityKit).
 //   • Everywhere else (web, Android, pre-16.1, or before the widget target is wired up
 //     in Xcode): every method is a safe no-op.
-// Feature-detected with the SAME registerPlugin guard as GeoTracker — some WKWebView loads
-// inject window.Capacitor WITHOUT registerPlugin, and calling it then throws and blanks the
-// whole app (617d). Plugin calls that reject (e.g. Android's "not implemented") are swallowed
-// so a Live Activity hiccup can never interrupt a recording.
+// Gated on a real native platform (same as GeoTracker). @capacitor/core is bundled (Phase 2b)
+// so registerPlugin always exists; the try/catch around it stays as belt-and-suspenders.
+// Plugin calls that reject (e.g. Android's "not implemented") are swallowed so a Live Activity
+// hiccup can never interrupt a recording.
 // ---------------------------------------------------------------------------
 const LiveActivity = (() => {
-  const Cap = (typeof window !== 'undefined') ? window.Capacitor : null;
-  const canUsePlugins = !!(Cap && typeof Cap.registerPlugin === 'function');
-  const isNative = !!(Cap && typeof Cap.isNativePlatform === 'function' && Cap.isNativePlatform() && canUsePlugins);
+  const isNative = !!(typeof registerPlugin === 'function' && Capacitor && typeof Capacitor.isNativePlatform === 'function' && Capacitor.isNativePlatform());
   let _p = null;
   const plugin = () => {
     if (!isNative) return null;
-    if (!_p) { try { _p = Cap.registerPlugin('LiveActivity'); } catch (e) { _p = null; } }
+    if (!_p) { try { _p = registerPlugin('LiveActivity'); } catch (e) { _p = null; } }
     return _p;
   };
   // Run a plugin call and swallow any sync throw or async rejection.
@@ -1073,8 +1077,7 @@ const MAPBOX_STYLE = 'mapbox/dark-v11';
 // the Capacitor app, fall back to OpenStreetMap tiles (no token, no origin restriction)
 // which the .tiles-osm CSS already mutes to suit the dark theme. The web app
 // (team3332.com) is unaffected and keeps the dark Mapbox style. (617d)
-const IS_NATIVE_APP = !!(typeof window !== 'undefined' && window.Capacitor
-  && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+const IS_NATIVE_APP = !!(Capacitor && typeof Capacitor.isNativePlatform === 'function' && Capacitor.isNativePlatform());
 const USING_MAPBOX = MAPBOX_TOKEN.startsWith('pk.') && !IS_NATIVE_APP;
 
 // Returns a Leaflet tile layer: Mapbox if a token is set, else OpenStreetMap.

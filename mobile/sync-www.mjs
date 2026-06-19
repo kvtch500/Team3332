@@ -45,19 +45,10 @@ async function main() {
     copied++;
   }
 
-  // Bundle the Capacitor core runtime (registerPlugin, etc.) into www/. The no-build
-  // web app never imports @capacitor/core, so the native WKWebView has no registerPlugin
-  // and background GPS can't bind. index.html's native-only head loader pulls this file
-  // (gated so it never loads on the web). Copied from node_modules so it always matches
-  // the installed @capacitor/core version. (618 — background GPS)
-  const capCore = path.resolve(here, 'node_modules', '@capacitor', 'core', 'dist', 'capacitor.js');
-  if (await exists(capCore)) {
-    await cp(capCore, path.join(wwwDir, 'capacitor.js'));
-    copied++;
-  } else {
-    console.warn('⚠ @capacitor/core runtime not found at node_modules/@capacitor/core/dist/capacitor.js');
-    console.warn('  run `npm install` in mobile/ first — background GPS needs this file.');
-  }
+  // Phase 2b (June 2026): @capacitor/core is now BUNDLED into app.js (the root build imports
+  // `registerPlugin`/`Capacitor`), so we no longer copy capacitor.js into www/ — the native
+  // head-loader that pulled it was removed from index.html. registerPlugin ships in app.js and
+  // proxies through the bridge the native runtime injects. (Background GPS — re-verify on device.)
 
   const list = await readdir(wwwDir);
   console.log(`✓ synced ${copied} item(s) into www/: ${list.join(', ')}`);

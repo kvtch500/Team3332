@@ -1,10 +1,13 @@
 # TEAM 3332 — Frontend build (pre-transpile, no in-browser Babel)
 
-Status as of **June 19, 2026** (Phase 2a): the web/native frontend is **pre-transpiled AND
-bundled**. The app body no longer runs through Babel-standalone in the browser; esbuild compiles
-the JSX and now **bundles React, ReactDOM and Leaflet into `app/app.js`** (no longer CDN UMD
-globals). The rendering stack boots with zero CDN dependency and works offline. `@capacitor/core`
-is intentionally NOT bundled yet (Phase 2b) so the verified background-GPS path stays untouched.
+Status as of **June 19, 2026** (Phase 2a + 2b): the web/native frontend is **pre-transpiled AND
+fully bundled**. The app body no longer runs through Babel-standalone in the browser; esbuild
+compiles the JSX and **bundles React, ReactDOM, Leaflet AND `@capacitor/core` into `app/app.js`**
+(none are CDN/UMD globals anymore). The app boots with **zero CDN dependency** and works offline.
+The native Capacitor head-loader (`document.write` of `capacitor.js`) has been **retired** —
+`registerPlugin`/`Capacitor` ship in the bundle and proxy through the bridge the native runtime
+injects. ⚠️ Phase 2b touches the background-GPS path, so it **must be re-verified on device**
+(foreground + locked-screen tracking) — the sandbox can't prove it.
 
 ## Why
 
@@ -22,24 +25,29 @@ Pre-transpiling removes both: no Babel download, no boot-time transpile.
 | `app/src/app.jsx` | **SOURCE.** The React app body (the old `text/babel` block). Edit this. |
 | `app/app.js` | **GENERATED.** Pre-transpiled, **bundled** (React + ReactDOM + Leaflet inside), minified output of `app.jsx`. Committed & deployed. **Never hand-edit.** |
 | `app/leaflet.css` | **GENERATED.** Leaflet's stylesheet, copied from `node_modules` by the build. Committed. Local (no CDN). **Never hand-edit.** |
-| `app/index.html` | Shell: links local `leaflet.css`, then loads `app.js` (which bundles React/ReactDOM/Leaflet). Boot UI + watchdog + the native Capacitor head-loader live here. |
+| `app/index.html` | Shell: links local `leaflet.css`, then loads `app.js` (which bundles React/ReactDOM/Leaflet/@capacitor/core). Boot UI + watchdog live here. The native head-loader is **gone**. |
 | `app/build.mjs` | esbuild build script (JSX → bundled `app.js`) + copies `leaflet.css`. |
 
-`app/src/app.jsx` now **imports** `react`, `react-dom/client`, and `leaflet` (root `dependencies`,
-version-pinned 18.3.1 / 18.3.1 / 1.9.4 to match the old CDN), and esbuild bundles them in
-(`bundle:true`, `process.env.NODE_ENV` defined to `production`). The app uses only Leaflet vector
-layers (`tileLayer`/`polyline`/`circleMarker`) — no default marker icons — so the image assets
-referenced inside `leaflet.css` are never requested.
+`app/src/app.jsx` now **imports** `react`, `react-dom/client`, `leaflet`, and
+`{ Capacitor, registerPlugin }` from `@capacitor/core` (root `dependencies`, version-pinned
+18.3.1 / 18.3.1 / 1.9.4 / ^6.0.0 to match the old CDN + the native Capacitor 6 line). esbuild
+bundles them all in (`bundle:true`, `process.env.NODE_ENV` defined to `production`). The app uses
+only Leaflet vector layers (`tileLayer`/`polyline`/`circleMarker`) — no default marker icons — so
+the image assets referenced inside `leaflet.css` are never requested.
 
-`window.Capacitor` is **still** injected by the native head-loader in `index.html` (unchanged — the
-verified background-GPS path is untouched). `GeoTracker`/`LiveActivity` still read
-`window.Capacitor.registerPlugin` as before.
+**Capacitor (Phase 2b):** `GeoTracker`, `LiveActivity` and `IS_NATIVE_APP` now use the bundled
+`Capacitor.isNativePlatform()` / `registerPlugin(...)` instead of reading `window.Capacitor`. On
+device, the native runtime still injects the low-level bridge at document-start and the bundled
+`registerPlugin` proxies through it (the canonical Capacitor setup); on the web, `isNativePlatform()`
+is false so the recorder falls back to `navigator.geolocation` exactly as before. The 617d failure
+mode (`window.Capacitor` injected without `registerPlugin`) is now impossible — `registerPlugin`
+ships in the bundle. `sync-www.mjs` no longer copies `capacitor.js`, and the `index.html`
+head-loader was removed.
 
-> **Phase 2b (remaining, GPS-gated):** bundle `@capacitor/core` **into** `app.js` (import
-> `registerPlugin`/`Capacitor` instead of reading `window.Capacitor`) and retire the native
-> head-loader + `capacitor.js` copy. Deferred on purpose — it touches the just-verified
-> background-GPS path, so it must be done with on-device GPS re-testing (foreground + locked
-> screen), not in the sandbox.
+> ⚠️ **Phase 2b is GPS-sensitive.** After building, **re-verify background GPS on device**:
+> foreground "GPS ready" preview, the live route polyline while recording, and tracking that
+> continues when the screen locks / app is backgrounded (the `@capacitor-community/background-
+> geolocation` watcher). If anything regresses, this is the commit to revert.
 
 ## Build it
 
@@ -73,23 +81,27 @@ if `app/app.js` is missing:
 
 ```bash
 cd mobile
-npm run sync           # = npm run build:app  ->  copy www/ (incl. app.js + capacitor.js)  ->  npx cap sync
+npm run sync           # = npm run build:app  ->  copy www/ (app.js + leaflet.css, NO capacitor.js)  ->  npx cap sync
 # then ⌘R in Xcode
 ```
 
 ## Validation checklist (on the Mac — sandbox can't transpile)
 
-- [ ] `npm install` at repo root succeeds; `node_modules/{esbuild,react,react-dom,leaflet}` exist.
+- [ ] `npm install` at repo root succeeds; `node_modules/{esbuild,react,react-dom,leaflet,@capacitor/core}` exist.
 - [ ] `npm run build:app` prints `✓ built app/app.js` **and** `✓ copied leaflet.css -> app/leaflet.css`;
-      both files are non-empty (app.js is now larger — it bundles React/ReactDOM/Leaflet).
+      both files are non-empty (app.js is now larger — it bundles React/ReactDOM/Leaflet/@capacitor/core).
 - [ ] Open `app/index.html` locally (or deploy to a preview): app mounts, and in the Network tab
       there are **no** requests to `unpkg.com` for react / react-dom / leaflet, **no** `babel`
-      request, **no** `text/babel` in the page source. `leaflet.css` loads from the same origin.
+      request, **no** `text/babel`, **no** `capacitor.js` request. `leaflet.css` loads same-origin.
 - [ ] Spot-check core flows: login, record screen (foreground GPS + live polyline), leaderboard,
       challenges, clubs, captain tools.
-- [ ] Native: `cd mobile && npm run sync` then ⌘R → app boots **faster**, no black screen;
-      foreground + background GPS still work (regression of handoff618b).
-- [ ] Web (team3332.com) after deploy: app loads; `app.js` is requested; no console errors.
+- [ ] **Phase 2b GPS re-test (critical) — `cd mobile && npm run sync` then ⌘R:** app boots (no black
+      screen); **foreground** "GPS ready" preview works; the **live route polyline** draws while
+      recording; tracking **continues when the screen locks / app is backgrounded** (the TEAM 3332
+      "run in progress" notification appears); the Live Activity card still shows. If any of these
+      regress, revert the Phase 2b commit. (Regression baseline: handoff618b background GPS.)
+- [ ] Web (team3332.com) after deploy: app loads; `app.js` is requested; no console errors;
+      `navigator.geolocation` fallback still records a run in the browser.
 
 ## If something breaks
 
