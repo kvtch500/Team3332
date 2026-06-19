@@ -28,4 +28,8 @@ struct RunActivityAttributes: ActivityAttributes {
 
     /// "Run" or "Walk" — set once when the activity starts.
     var activityType: String
+    /// When the run started. Lets the widget render a self-counting `Text(style: .timer)`
+    /// that ticks every second on the lock screen WITHOUT app updates — iOS rate-limits
+    /// app-pushed updates, so pushing elapsed seconds made the displayed time jump. (618g)
+    var startedAt: Date
 }

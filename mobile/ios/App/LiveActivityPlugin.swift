@@ -63,7 +63,8 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             activity = nil
         }
         let attributes = RunActivityAttributes(
-            activityType: call.getString("activityType") ?? "Run"
+            activityType: call.getString("activityType") ?? "Run",
+            startedAt: Date()
         )
         let initial = state(from: call)
         do {

@@ -17,15 +17,6 @@ private let brandDark = Color(red: 0x0B / 255, green: 0x0F / 255, blue: 0x14 / 2
 
 // MARK: - Formatting helpers
 
-/// Seconds -> "H:MM:SS" or "M:SS".
-private func clock(_ secs: Int) -> String {
-    let s = max(0, secs)
-    let h = s / 3600, m = (s % 3600) / 60, sec = s % 60
-    return h > 0
-        ? String(format: "%d:%02d:%02d", h, m, sec)
-        : String(format: "%d:%02d", m, sec)
-}
-
 private func miles(_ d: Double) -> String { String(format: "%.2f", max(0, d)) }
 
 private func icon(for type: String) -> String {
@@ -57,7 +48,7 @@ private struct LockScreenView: View {
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 8) {
-                metric(value: clock(st.elapsedSeconds), label: "TIME")
+                timerMetric(from: context.attributes.startedAt, label: "TIME")
                 metric(value: st.metricValue, label: st.metricLabel)
             }
         }
@@ -72,6 +63,23 @@ private struct LockScreenView: View {
             Text(value)
                 .font(.system(size: 18, weight: .bold, design: .rounded))
                 .foregroundColor(.white)
+                .lineLimit(1)
+            Text(label)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(.gray)
+                .tracking(0.5)
+        }
+    }
+
+    // Self-counting elapsed timer. iOS renders/ticks this locally every second on the lock
+    // screen — no app updates needed, so it never jumps the way app-pushed seconds did. (618g)
+    private func timerMetric(from start: Date, label: String) -> some View {
+        VStack(alignment: .trailing, spacing: 0) {
+            Text(start, style: .timer)
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .monospacedDigit()
+                .multilineTextAlignment(.trailing)
                 .lineLimit(1)
             Text(label)
                 .font(.system(size: 9, weight: .semibold))
@@ -103,10 +111,12 @@ struct RunLiveActivity: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(clock(st.elapsedSeconds))
+                    Text(context.attributes.startedAt, style: .timer)
                         .font(.system(.body, design: .rounded)).fontWeight(.semibold)
                         .foregroundColor(.white)
                         .monospacedDigit()
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: 64, alignment: .trailing)
                 }
                 DynamicIslandExpandedRegion(.center) {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
