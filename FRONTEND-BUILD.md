@@ -1,8 +1,10 @@
 # TEAM 3332 — Frontend build (pre-transpile, no in-browser Babel)
 
-Status as of **June 18, 2026** (Phase 1): the web/native frontend is now **pre-transpiled**.
-The app body no longer runs through Babel-standalone in the browser; esbuild compiles the JSX
-ahead of time into `app/app.js`.
+Status as of **June 19, 2026** (Phase 2a): the web/native frontend is **pre-transpiled AND
+bundled**. The app body no longer runs through Babel-standalone in the browser; esbuild compiles
+the JSX and now **bundles React, ReactDOM and Leaflet into `app/app.js`** (no longer CDN UMD
+globals). The rendering stack boots with zero CDN dependency and works offline. `@capacitor/core`
+is intentionally NOT bundled yet (Phase 2b) so the verified background-GPS path stays untouched.
 
 ## Why
 
@@ -18,18 +20,26 @@ Pre-transpiling removes both: no Babel download, no boot-time transpile.
 | File | Role |
 |---|---|
 | `app/src/app.jsx` | **SOURCE.** The React app body (the old `text/babel` block). Edit this. |
-| `app/app.js` | **GENERATED.** Pre-transpiled, minified output of `app.jsx`. Committed & deployed. **Never hand-edit.** |
-| `app/index.html` | Shell: loads React/ReactDOM (production UMD) + Leaflet from CDN, then `app.js`. Boot UI + watchdog live here. |
-| `app/build.mjs` | esbuild build script (JSX → `app.js`). |
+| `app/app.js` | **GENERATED.** Pre-transpiled, **bundled** (React + ReactDOM + Leaflet inside), minified output of `app.jsx`. Committed & deployed. **Never hand-edit.** |
+| `app/leaflet.css` | **GENERATED.** Leaflet's stylesheet, copied from `node_modules` by the build. Committed. Local (no CDN). **Never hand-edit.** |
+| `app/index.html` | Shell: links local `leaflet.css`, then loads `app.js` (which bundles React/ReactDOM/Leaflet). Boot UI + watchdog + the native Capacitor head-loader live here. |
+| `app/build.mjs` | esbuild build script (JSX → bundled `app.js`) + copies `leaflet.css`. |
 
-React, ReactDOM, and Leaflet are still loaded as **CDN UMD globals** in `index.html` — the app
-body references them as globals (`React`, `ReactDOM`, `L`), so nothing is bundled; esbuild only
-transpiles JSX. `window.Capacitor` is still provided by the native head-loader (unchanged — the
-verified background-GPS path is untouched).
+`app/src/app.jsx` now **imports** `react`, `react-dom/client`, and `leaflet` (root `dependencies`,
+version-pinned 18.3.1 / 18.3.1 / 1.9.4 to match the old CDN), and esbuild bundles them in
+(`bundle:true`, `process.env.NODE_ENV` defined to `production`). The app uses only Leaflet vector
+layers (`tileLayer`/`polyline`/`circleMarker`) — no default marker icons — so the image assets
+referenced inside `leaflet.css` are never requested.
 
-> Phase 2 (later, optional): bundle React/ReactDOM/Leaflet/@capacitor/core **into** `app.js` so
-> the app boots with zero CDN dependency (works offline) and the native head-loader can be
-> retired. Not done yet — deliberately kept out to protect the just-verified background GPS.
+`window.Capacitor` is **still** injected by the native head-loader in `index.html` (unchanged — the
+verified background-GPS path is untouched). `GeoTracker`/`LiveActivity` still read
+`window.Capacitor.registerPlugin` as before.
+
+> **Phase 2b (remaining, GPS-gated):** bundle `@capacitor/core` **into** `app.js` (import
+> `registerPlugin`/`Capacitor` instead of reading `window.Capacitor`) and retire the native
+> head-loader + `capacitor.js` copy. Deferred on purpose — it touches the just-verified
+> background-GPS path, so it must be done with on-device GPS re-testing (foreground + locked
+> screen), not in the sandbox.
 
 ## Build it
 
@@ -69,10 +79,12 @@ npm run sync           # = npm run build:app  ->  copy www/ (incl. app.js + capa
 
 ## Validation checklist (on the Mac — sandbox can't transpile)
 
-- [ ] `npm install` at repo root succeeds and `node_modules/esbuild` exists.
-- [ ] `npm run build:app` prints `✓ built app/app.js` and `app/app.js` is non-empty.
-- [ ] Open `app/index.html` locally (or deploy to a preview): app mounts, **no** `babel`
-      request in the Network tab, **no** `text/babel` in the page source.
+- [ ] `npm install` at repo root succeeds; `node_modules/{esbuild,react,react-dom,leaflet}` exist.
+- [ ] `npm run build:app` prints `✓ built app/app.js` **and** `✓ copied leaflet.css -> app/leaflet.css`;
+      both files are non-empty (app.js is now larger — it bundles React/ReactDOM/Leaflet).
+- [ ] Open `app/index.html` locally (or deploy to a preview): app mounts, and in the Network tab
+      there are **no** requests to `unpkg.com` for react / react-dom / leaflet, **no** `babel`
+      request, **no** `text/babel` in the page source. `leaflet.css` loads from the same origin.
 - [ ] Spot-check core flows: login, record screen (foreground GPS + live polyline), leaderboard,
       challenges, clubs, captain tools.
 - [ ] Native: `cd mobile && npm run sync` then ⌘R → app boots **faster**, no black screen;
@@ -83,8 +95,12 @@ npm run sync           # = npm run build:app  ->  copy www/ (incl. app.js + capa
 
 - Black screen on web/native → `app/app.js` is missing or stale. Run `npm run build:app` and
   redeploy/re-sync.
-- `React is not defined` → the CDN React UMD didn't load before `app.js`. Check the `<head>`
-  script order in `index.html` (Leaflet → React → ReactDOM → … → `app.js` last, in `<body>`).
+- `React is not defined` / `L is not defined` → should no longer happen (they're bundled into
+  `app.js`). If it does, the build didn't bundle — confirm `app/build.mjs` has `bundle:true` and
+  that `react`/`react-dom`/`leaflet` are installed (`npm install` at the repo root), then rebuild.
+- Map renders but unstyled / controls misplaced → `app/leaflet.css` is missing or wasn't synced.
+  Re-run `npm run build:app` (it copies it) and make sure `leaflet.css` is in `index.html` and in
+  `sync-www.mjs`'s INCLUDE list.
 - esbuild reports a syntax error in `app.jsx` → fix it in `app/src/app.jsx` (the only file you
   edit) and rebuild. The error's line number maps directly to `app.jsx`.
 - Need to roll back fast → `app/index.html.prebuild.bak` is the pre-change single-file version

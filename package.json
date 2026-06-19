@@ -7,6 +7,11 @@
     "build:app": "node app/build.mjs",
     "build": "node app/build.mjs"
   },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "leaflet": "1.9.4"
+  },
   "devDependencies": {
     "esbuild": "^0.23.0"
   }

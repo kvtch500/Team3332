@@ -2,9 +2,17 @@
 // This is the JSX that used to live in an in-browser <script type="text/babel"> block
 // inside app/index.html. It is now pre-transpiled by esbuild into app/app.js
 // (run `npm run build:app` from the repo root). DO NOT hand-edit app/app.js — edit
-// this file and rebuild. The app body still uses the global React / ReactDOM / L
-// (loaded as CDN UMD in index.html) and window.Capacitor (native head-loader), so it
-// references them as globals with no import statements — esbuild only transpiles JSX.
+// this file and rebuild.
+//
+// Phase 2a (June 2026): React, ReactDOM and Leaflet are now BUNDLED into app.js
+// (esbuild bundle:true) instead of being loaded as CDN UMD globals — the web app boots
+// with zero CDN dependency for the rendering stack and works offline. They're imported
+// just below. window.Capacitor is still provided by the native head-loader: the
+// just-verified background-GPS path is deliberately left untouched here. Phase 2b will
+// bundle @capacitor/core and retire that loader, gated on on-device GPS re-testing.
+import React from 'react';
+import * as ReactDOM from 'react-dom/client';
+import L from 'leaflet';
 /* eslint-disable */
 
 const { useState, useEffect, useContext, createContext, useCallback, useRef } = React;
@@ -1086,7 +1094,8 @@ function baseTileLayer() {
    Imperative wrapper: React owns the container; Leaflet owns the canvas.
    `points` is the recorder's growing [[lat,lon],…] array; a fresh array
    reference arrives on every accepted GPS fix, so the update effect re-runs.
-   Degrades silently to a dark panel if Leaflet (window.L) failed to load. */
+   Leaflet is bundled into app.js (Phase 2a) so `L` is always defined; the `L` guards
+   below are now defensive no-ops (kept so the components stay safe if that ever changes). */
 function LiveRouteMap({ points }) {
   const elRef    = useRef(null);
   const mapRef   = useRef(null);
@@ -1096,7 +1105,7 @@ function LiveRouteMap({ points }) {
 
   // Init once, when the recording view mounts.
   useEffect(() => {
-    if (!window.L || !elRef.current) return;
+    if (!L || !elRef.current) return;
     const map = L.map(elRef.current, {
       zoomControl: false, attributionControl: true,
       dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
@@ -1137,8 +1146,8 @@ function LiveRouteMap({ points }) {
   return (
     <div className={`live-map ${USING_MAPBOX ? 'tiles-mapbox' : 'tiles-osm'}`}>
       <div ref={elRef} style={{ width: '100%', height: '100%' }} />
-      {(!window.L) && <div className="live-map-wait">Map unavailable — your route is still being recorded.</div>}
-      {window.L && (!points || points.length === 0) &&
+      {(!L) && <div className="live-map-wait">Map unavailable — your route is still being recorded.</div>}
+      {L && (!points || points.length === 0) &&
         <div className="live-map-wait">📡 Waiting for GPS lock — your route will draw here.</div>}
       <div className="live-map-scrim" />
     </div>
@@ -1153,7 +1162,7 @@ function RouteMiniMap({ points }) {
   const elRef  = useRef(null);
   const mapRef = useRef(null);
   useEffect(() => {
-    if (!window.L || !elRef.current || !points || points.length < 2) return;
+    if (!L || !elRef.current || !points || points.length < 2) return;
     const map = L.map(elRef.current, {
       zoomControl: false, attributionControl: true,
       dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
@@ -1169,7 +1178,7 @@ function RouteMiniMap({ points }) {
     const t = setTimeout(() => { map.invalidateSize(); map.fitBounds(line.getBounds(), { padding: [24, 24], maxZoom: 17 }); }, 80);
     return () => { clearTimeout(t); map.remove(); mapRef.current = null; };
   }, [points]);
-  if (!window.L || !points || points.length < 2) return null;
+  if (!L || !points || points.length < 2) return null;
   return <div className={`route-mini ${USING_MAPBOX ? 'tiles-mapbox' : 'tiles-osm'}`}><div ref={elRef} style={{ width: '100%', height: '100%' }} /></div>;
 }
 

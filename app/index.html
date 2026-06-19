@@ -5,15 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TEAM 3332 App</title>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet" />
-  <!-- Leaflet (version-pinned; do NOT use @latest — see the Babel 8 black-screen outage, handoff617) -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- React/ReactDOM as version-pinned production UMD globals. The app body (app.js) is
-       pre-transpiled from app/src/app.jsx by esbuild (npm run build:app) — there is NO
-       in-browser Babel anymore. Babel-standalone was removed June 2026 (frontend pre-build):
-       it was the cause of the Babel-8 black-screen outage and the slow cold-boot transpile. -->
-  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <!-- Phase 2a (June 2026): React, ReactDOM and Leaflet are BUNDLED into app.js (esbuild
+       bundle:true). They are no longer loaded from a CDN — the rendering stack boots with
+       zero CDN dependency and works offline. (Removed: unpkg react/react-dom/leaflet
+       <script> tags and the leaflet.css CDN <link>.) There is no in-browser Babel either —
+       Babel-standalone was removed June 2026; it caused the Babel-8 black-screen outage and
+       the slow cold-boot transpile. Leaflet's stylesheet is now the local leaflet.css,
+       copied next to app.js by npm run build:app. -->
+  <link rel="stylesheet" href="leaflet.css" />
   <!-- Native-only: load the Capacitor core runtime so window.Capacitor.registerPlugin
        exists in the WKWebView. This no-build app never bundles @capacitor/core, so the
        native bridge injects window.Capacitor (isNativePlatform works) but NOT
@@ -924,9 +923,11 @@
   window.addEventListener('load',function(){
     setTimeout(function(){
       if(!document.getElementById('boot-status'))return; /* app mounted — nothing to do */
+      /* React/ReactDOM are bundled inside app.js now (Phase 2a) — they are no longer
+         window globals, so we can't probe window.React. If the app hasn't mounted, the
+         usual cause is a failed app.js fetch, most often offline. */
       var offline=(typeof navigator!=='undefined'&&navigator.onLine===false);
-      var missing=(!window.React||!window.ReactDOM);
-      showError((offline||missing)
+      showError(offline
         ? 'We couldn’t load the app — please check your internet connection and reload.'
         : 'The app didn’t load correctly. Please reload; if it keeps happening, try again shortly.');
     },8000);
