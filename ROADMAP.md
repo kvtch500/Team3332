@@ -146,6 +146,15 @@ Features that aren't launch-blockers but raise the product to "real running app"
       now shows a persistent red banner over the recording screen — "GPS signal lost" or "Location
       access turned off" — and clears it automatically when fixes resume. `denied` still also
       fires the existing toast. Pure `recGpsAlert(kind)` helper; works native + web.
+- [ ] **Auto-pause (opt-in member setting):** automatically pause the timer + distance when the
+      runner stops moving (waiting at a crosswalk, traffic light, water break) and resume when they
+      start again — like Strava/Nike auto-pause. Make it a per-member toggle in settings (default
+      off, members opt in) so anyone who'd rather keep the clock running can. Implementation notes:
+      we already thread the Doppler **`speed`** field into the recorder (619), so the pause trigger
+      can reuse it — e.g. pause after speed stays below a walk threshold for ~N seconds, resume when
+      it rises again — with a position-fallback when speed is unavailable. While paused, freeze
+      `elapsed`/distance, show a "Paused" state on the record screen + the Live Activity, and don't
+      accumulate points. Persist the toggle on the user profile so it applies on every device.
 
 ### Lock-screen Live Activity (iOS) — runner-facing ✅ in progress
 *Goal: a Strava/Nike-style live card on the lock screen + Dynamic Island during a run.*

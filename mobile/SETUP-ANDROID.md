@@ -135,3 +135,6 @@ npx cap run android
 - Already set: `android.useLegacyBridge: true` in `capacitor.config.json`
 - Still to do: `cap add android`, manifest permissions above, runtime notification request,
   emulator test, Play Console.
+- Run "Live Activity" analog (ongoing run-stats notification, the Android counterpart of the iOS
+  lock-screen card): plugin + steps in **`LIVE-ACTIVITY-ANDROID-SETUP.md`**; committed source in
+  `android-native-src/`. Do it after Steps 1–2 here.

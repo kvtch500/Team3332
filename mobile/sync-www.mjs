@@ -16,7 +16,7 @@ const wwwDir = path.resolve(here, 'www');           // Capacitor webDir
 // Files/folders to bundle from ../app. index.html is the entry point, app.js is the
 // pre-transpiled+bundled app body (built from ../app/src/app.jsx by `npm run build:app`,
 // which also copies leaflet.css next to it — Phase 2a).
-const INCLUDE = ['index.html', 'app.js', 'leaflet.css', 'privacy.html', 'terms.html', 'reset-password.html', 'public'];
+const INCLUDE = ['index.html', 'app.js', 'leaflet.css', 'fonts.css', 'fonts', 'privacy.html', 'terms.html', 'reset-password.html', 'public'];
 
 async function exists(p) { try { await stat(p); return true; } catch { return false; } }
 

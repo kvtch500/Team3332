@@ -149,7 +149,7 @@ struct RunLiveActivity: Widget {
         } dynamicIsland: { context in
             let st = context.state
             return DynamicIsland {
-                // Expanded
+                // Expanded — labeled-stat treatment mirroring the lock screen. (619 polish)
                 DynamicIslandExpandedRegion(.leading) {
                     Label {
                         Text(st.isFinished ? "COMPLETE" : context.attributes.activityType.uppercased())
@@ -161,31 +161,79 @@ struct RunLiveActivity: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Group {
-                        if st.isFinished {
-                            Text(clock(st.elapsedSeconds))
-                        } else {
-                            Text(context.attributes.startedAt, style: .timer)
+                    // Self-counting timer while live; frozen final time when finished. Now labeled
+                    // "TIME" to match the lock-screen metric stack.
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Group {
+                            if st.isFinished {
+                                Text(clock(st.elapsedSeconds))
+                            } else {
+                                Text(context.attributes.startedAt, style: .timer)
+                            }
                         }
+                        .font(.system(.body, design: .rounded)).fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .monospacedDigit()
+                        .multilineTextAlignment(.trailing)
+                        .lineLimit(1)
+                        .frame(maxWidth: 70, alignment: .trailing)
+                        Text("TIME")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(.gray)
+                            .tracking(0.5)
                     }
-                    .font(.system(.body, design: .rounded)).fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .monospacedDigit()
-                    .multilineTextAlignment(.trailing)
-                    .frame(maxWidth: 64, alignment: .trailing)
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(miles(st.distanceMiles))
-                            .font(.system(size: 28, weight: .heavy, design: .rounded))
-                            .foregroundColor(.white)
-                        Text("mi")
-                            .font(.caption).foregroundColor(.gray)
+                    VStack(spacing: 0) {
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text(miles(st.distanceMiles))
+                                .font(.system(size: 26, weight: .heavy, design: .rounded))
+                                .foregroundColor(.white)
+                                .minimumScaleFactor(0.7)
+                                .lineLimit(1)
+                            Text("mi")
+                                .font(.caption).foregroundColor(.gray)
+                        }
+                        Text("DISTANCE")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(.gray)
+                            .tracking(0.5)
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text(st.isFinished ? "Run complete · \(st.metricValue) \(st.metricLabel)" : "\(st.metricValue) \(st.metricLabel)")
-                        .font(.caption).foregroundColor(.gray)
+                    if st.isFinished {
+                        // Clean completion line, centered, instead of a faint gray caption.
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundColor(brandGold).font(.caption)
+                            Text("Run complete · \(st.metricValue) \(st.metricLabel)")
+                                .font(.caption).fontWeight(.medium)
+                                .foregroundColor(.white)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 2)
+                    } else {
+                        // Labeled secondary metric (pace for runs, speed for walks).
+                        HStack(alignment: .firstTextBaseline) {
+                            Label {
+                                Text(context.attributes.activityType.lowercased() == "walk" ? "AVG SPEED" : "AVG PACE")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundColor(.gray)
+                                    .tracking(0.5)
+                            } icon: {
+                                Image(systemName: "speedometer")
+                                    .foregroundColor(brandGold).font(.caption2)
+                            }
+                            Spacer(minLength: 8)
+                            Text("\(st.metricValue) \(st.metricLabel)")
+                                .font(.system(.callout, design: .rounded)).fontWeight(.semibold)
+                                .foregroundColor(.white)
+                                .monospacedDigit()
+                                .lineLimit(1)
+                        }
+                        .padding(.top, 2)
+                    }
                 }
             } compactLeading: {
                 Image(systemName: st.isFinished ? "checkmark.seal.fill" : icon(for: context.attributes.activityType))

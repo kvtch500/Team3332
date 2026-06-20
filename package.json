@@ -5,7 +5,8 @@
     "start": "cd backend && node server.js",
     "install": "cd backend && npm install",
     "build:app": "node app/build.mjs",
-    "build": "node app/build.mjs"
+    "build": "node app/build.mjs",
+    "fonts:refresh": "rm -f app/fonts.css && rm -rf app/fonts && node app/fetch-fonts.mjs"
   },
   "dependencies": {
     "@capacitor/app": "^6.0.0",

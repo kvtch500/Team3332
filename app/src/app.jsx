@@ -749,18 +749,47 @@ function havMeters(a, b) {
 }
 
 // Pure step function: takes recorder state + a GPS fix, returns updated state.
-// Filters: poor accuracy (>35m), jitter (<3m), GPS jumps (>12 m/s).
+// Filters (tuned 619):
+//   • poor accuracy (>30m) — reject the fix outright (tightened from 35m).
+//   • SPEED GATE (primary anti-drift): if the fix carries a valid speed below ~0.4 m/s
+//     (≈0.9 mph), the user isn't really moving — drop it. On iOS this speed is Doppler-
+//     derived (measured from the satellite signal), so it reads ~0 when stationary and a
+//     true value when walking — it does NOT drift the way differenced positions do. It's
+//     -1/negative when momentarily unavailable (native) and null on web; in those cases we
+//     skip the gate and fall back to the distance floor below, so nothing breaks where
+//     speed is missing. This is what actually kills stationary creep.
+//   • noise floor: ignore steps shorter than 5m (raised from 3m) — the fallback for when
+//     speed is unavailable. Because `last` only advances on an ACCEPTED fix, a real walk
+//     loses nothing (consecutive sub-5m steps batch up against the older `last` until they
+//     clear the floor). Deliberately FLAT, not accuracy-scaled: an accuracy-scaled floor
+//     under-counted real out-and-back walks by ~15% in poor (urban-canyon) GPS.
+//   • GPS jumps (>12 m/s) — reject teleports (absolute fallback when no speed is reported).
+//   • MULTIPATH guard: when the platform reports a real speed, a position step implying a
+//     speed far above it (>2.5× speed, with slack) is a building-reflection jump, not real
+//     movement — drop it. In an urban canyon a fix's POSITION can jump 20-30m off a wall
+//     even while you walk normally; that spike passed both the speed gate (Doppler reads your
+//     true ~1 m/s) and the 12 m/s cap (30m/6s = 5 m/s), and it inflated distance and the
+//     average-speed readout (a slow walk showing 6 mph). Cross-checking the position delta
+//     against the Doppler speed catches exactly these. (619)
 // Points are stored as [lat, lon, ts] where ts = whole seconds since the first fix. The
 // timestamp powers real fastest-segment best efforts on the backend; consumers that only
 // read p[0]/p[1] (maps, distance) are unaffected by the extra element. (618e)
+const GPS_MAX_ACCURACY_M = 30;   // reject fixes worse than this (metres)
+const GPS_MIN_SPEED_MS = 0.4;    // below this (≈0.9 mph), a valid speed reading = stationary
+const GPS_MIN_STEP_M = 5;        // ignore steps shorter than this (metres) — drift floor / speed fallback
 function recorderStep(st, fix) {
-  const { lat, lon, accuracy, t } = fix;
-  if (accuracy != null && accuracy > 35) return st;
+  const { lat, lon, accuracy, speed, t } = fix;
+  if (accuracy != null && accuracy > GPS_MAX_ACCURACY_M) return st;
+  const hasSpeed = typeof speed === 'number' && speed >= 0;
+  // Doppler speed gate — only when the platform gave us a real (non-negative, non-null) speed.
+  if (hasSpeed && speed < GPS_MIN_SPEED_MS) return st;
   if (!st.last) return { ...st, t0: t, last: { lat, lon, t }, points: [[lat, lon, 0]] };
   const d = havMeters(st.last, { lat, lon });
-  if (d < 3) return st;
+  if (d < GPS_MIN_STEP_M) return st;
   const dt = (t - st.last.t) / 1000;
   if (dt > 0 && d / dt > 12) return st;
+  // Multipath guard: reject a step whose implied speed grossly exceeds the Doppler speed.
+  if (hasSpeed && dt > 0 && (d / dt) > Math.max(speed * 2.5, speed + 3)) return st;
   const ts = Math.max(0, Math.round((t - st.t0) / 1000));
   return {
     ...st,
@@ -997,7 +1026,9 @@ const GeoTracker = (() => {
   }
 
   // Recording watch: native = background-capable; web = high-accuracy watch.
-  // onFix({lat,lon,accuracy,t}); onError(kind) where kind is 'denied' | 'error'.
+  // onFix({lat,lon,accuracy,speed,t}); onError(kind) where kind is 'denied' | 'error'.
+  // speed is metres/sec from the platform (Doppler-derived on iOS — drift-immune); it's
+  // -1/negative when unavailable on native and null on web, which recorderStep handles.
   function startRecording(onFix, onError) {
     if (isNative) {
       const h = { native: true, id: null, dead: false };
@@ -1010,13 +1041,13 @@ const GeoTracker = (() => {
       }, (location, err) => {
         if (err) { onError && onError(classify(err)); return; }
         if (!location) return;
-        onFix({ lat: location.latitude, lon: location.longitude, accuracy: location.accuracy, t: location.time });
+        onFix({ lat: location.latitude, lon: location.longitude, accuracy: location.accuracy, speed: location.speed, t: location.time });
       }).then(id => { h.id = id; if (h.dead) bg().removeWatcher({ id }); })
         .catch(() => onError && onError('error'));
       return h;
     }
     const id = navigator.geolocation.watchPosition(
-      pos => onFix({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy, t: pos.timestamp }),
+      pos => onFix({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy, speed: pos.coords.speed, t: pos.timestamp }),
       err => onError && onError(err && err.code === 1 ? 'denied' : 'error'),
       { enableHighAccuracy: true, maximumAge: 1000 }
     );

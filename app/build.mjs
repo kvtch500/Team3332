@@ -23,6 +23,7 @@ import { copyFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -59,3 +60,8 @@ console.log('✓ built app/app.js from app/src/app.jsx');
 const leafletCss = require.resolve('leaflet/dist/leaflet.css');
 await copyFile(leafletCss, path.join(here, 'leaflet.css'));
 console.log('✓ copied leaflet.css -> app/leaflet.css');
+
+// Self-host Google Fonts so the running app makes ZERO font CDN requests. This is a one-time
+// build-time fetch: after app/fonts.css + app/fonts/* exist (and are committed), it no-ops and
+// builds work offline. index.html links the local app/fonts.css. (619 — 100% CDN-free)
+execFileSync(process.execPath, [path.join(here, 'fetch-fonts.mjs')], { stdio: 'inherit' });
