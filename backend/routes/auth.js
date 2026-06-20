@@ -91,18 +91,58 @@ router.patch('/me', requireAuth, (req, res) => {
   if (avatar_url != null && (typeof avatar_url !== 'string' || avatar_url.length > 700000)) {
     return res.status(413).json({ error: 'Photo is too large. Please choose a smaller image.' });
   }
+  // auto_pause is a 0/1 toggle; accept boolean or number, null = leave unchanged.
+  const autoPause = req.body.auto_pause == null ? null : (req.body.auto_pause ? 1 : 0);
   const db = getDb();
 
   db.prepare(`
     UPDATE users SET name = COALESCE(?, name), bio = COALESCE(?, bio),
     location = COALESCE(?, location), pace_group = COALESCE(?, pace_group),
     country = COALESCE(?, country), state = COALESCE(?, state), city = COALESCE(?, city),
-    avatar_url = COALESCE(?, avatar_url),
+    avatar_url = COALESCE(?, avatar_url), auto_pause = COALESCE(?, auto_pause),
     updated_at = datetime('now') WHERE id = ?
-  `).run(name ?? null, bio ?? null, location ?? null, pace_group ?? null, country ?? null, state ?? null, city ?? null, avatar_url ?? null, req.user.id);
+  `).run(name ?? null, bio ?? null, location ?? null, pace_group ?? null, country ?? null, state ?? null, city ?? null, avatar_url ?? null, autoPause, req.user.id);
 
   const user = getUserWithClub(db, req.user.id);
   res.json({ user: safeUser(user) });
+});
+
+// DELETE /api/auth/me — Permanently delete the current user's account + all their data.
+// Required by the App Store / Google Play account-deletion guidelines. Confirms the
+// account password first, stops any live billing, then removes the user. Most child rows
+// are ON DELETE CASCADE; challenges.created_by has no cascade rule, so it's nulled first.
+router.delete('/me', requireAuth, async (req, res) => {
+  const { password } = req.body || {};
+  if (!password)
+    return res.status(400).json({ error: 'password is required to delete your account' });
+
+  const db   = getDb();
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (!bcrypt.compareSync(password, user.password))
+    return res.status(401).json({ error: 'Password is incorrect' });
+
+  // Best-effort: cancel any live Stripe subscription so billing stops. Never blocks deletion.
+  if (user.stripe_customer_id && process.env.STRIPE_SECRET_KEY) {
+    try {
+      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+      const subs = await stripe.subscriptions.list({
+        customer: user.stripe_customer_id, status: 'active', limit: 100,
+      });
+      for (const sub of subs.data) await stripe.subscriptions.cancel(sub.id);
+    } catch (e) {
+      console.error('[auth] Stripe cancel on delete failed (continuing):', e.message);
+    }
+  }
+
+  // Detach challenges this user authored (created_by has no ON DELETE rule → would block),
+  // then delete the user. CASCADE removes activities, badges, challenge/group memberships,
+  // captain records, announcements, nominations, and password resets.
+  db.prepare('UPDATE challenges SET created_by = NULL WHERE created_by = ?').run(req.user.id);
+  db.prepare('DELETE FROM users WHERE id = ?').run(req.user.id);
+
+  res.json({ message: 'Your account and all associated data have been permanently deleted.' });
 });
 
 // POST /api/auth/change-password

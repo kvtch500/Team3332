@@ -807,6 +807,25 @@ function recorderStep(st, fix) {
   };
 }
 
+// Auto-pause accounting (opt-in, default off). The recording clock stays wall-clock anchored
+// (now - start) so it self-corrects after the WebView is backgrounded; when the runner stops
+// moving we bank that stopped span into `pausedMs` and subtract it, so elapsed/pace reflect
+// MOVING time only. Movement is detected upstream in the fix callback (an accepted distance step
+// OR a Doppler speed ≥ the walk threshold bumps `lastMove`); this function only does the time
+// accounting and reports whether we're paused right now. Pure → node-checkable & simulatable.
+// With `enabled` false it never pauses, so elapsed === round((now-start)/1000) — identical to the
+// prior behavior, which keeps the device-verified background path untouched. (auto-pause, June 2026)
+const AUTO_PAUSE_GRACE_MS = 4000; // keep the clock running this long after motion stops, then pause
+function autoPauseStep(s, { now, lastMove, enabled }) {
+  const paused = !!enabled && (now - lastMove) >= AUTO_PAUSE_GRACE_MS;
+  let pausedMs = s.pausedMs, anchor = s.anchor;
+  if (paused && anchor == null) anchor = now;                       // entered a pause
+  if (!paused && anchor != null) { pausedMs += now - anchor; anchor = null; } // resumed → bank it
+  const live = anchor != null ? now - anchor : 0;                  // current open pause span
+  const activeMs = Math.max(0, (now - s.start) - pausedMs - live);
+  return { start: s.start, pausedMs, anchor, paused, elapsed: Math.round(activeMs / 1000) };
+}
+
 // Recording-time GPS failure → user-facing banner text. GPS errors arrive on async watch
 // callbacks, which React error boundaries can't catch, so the recorder surfaces them through
 // state instead (see RecordRun's gpsAlert). Pure → node-checkable. (618f)
@@ -835,6 +854,31 @@ function fmtSpeed(secs, miles) {
   const mph = (miles || 0) / (secs / 3600);
   if (mph > 30) return '—'; // GPS glitch guard
   return mph.toFixed(1);
+}
+// Live (current) speed readout. The on-screen secondary stat used to be the CUMULATIVE average
+// (total miles / total time), which swings wildly in the first ~10-15s when both numbers are tiny.
+// Instead we keep an exponential moving average of the *current* speed in m/s, updated per fix from
+// the Doppler speed (with a distance/time fallback), so the number is stable but still responsive.
+// The saved run + the review screen still show the true average — only the live display is smoothed.
+// Pure → node-checkable. (smoothed live speed, June 2026)
+const SPEED_EMA_ALPHA = 0.3;     // 0..1 — higher = snappier, lower = smoother
+function emaSpeed(prev, inst, alpha = SPEED_EMA_ALPHA) {
+  if (typeof inst !== 'number' || !isFinite(inst) || inst < 0) return prev; // ignore bad samples
+  if (prev == null) return inst;
+  return prev + alpha * (inst - prev);
+}
+function liveSpeedMph(mps) {
+  if (mps == null) return '—';
+  const mph = mps * 2.2369363;
+  if (mph < 0 || mph > 30) return '—'; // GPS glitch guard (matches fmtSpeed)
+  return mph.toFixed(1);
+}
+function livePaceFromMps(mps) {
+  if (!mps || mps < 0.1) return '—:—';   // stopped / too slow to be a meaningful pace
+  const spm = 1609.344 / mps;             // seconds per mile
+  if (spm > 3600) return '—:—';
+  const m = Math.floor(spm / 60), s = Math.round(spm % 60);
+  return s === 60 ? `${m + 1}:00` : `${m}:${String(s).padStart(2, '0')}`;
 }
 // Build the iOS Live Activity payload from the live recorder state: distance in miles +
 // elapsed secs + the same secondary metric the on-screen card shows (pace for runs, mph for
@@ -1219,13 +1263,15 @@ function RouteMiniMap({ points }) {
   return <div className={`route-mini ${USING_MAPBOX ? 'tiles-mapbox' : 'tiles-osm'}`}><div ref={elRef} style={{ width: '100%', height: '100%' }} /></div>;
 }
 
-function RecordRun({ onClose, onSaved, onToast }) {
+function RecordRun({ onClose, onSaved, onToast, autoPause }) {
   const [phase, setPhase] = useState('idle');     // idle | recording | review
   const [actType, setActType] = useState('Run');
   const [gpsStatus, setGpsStatus] = useState('waiting'); // waiting | ready | denied | error
   const [gpsAlert, setGpsAlert] = useState(null);  // {kind,msg} shown while recording if GPS fails
   const [elapsed, setElapsed] = useState(0);
   const [meters, setMeters] = useState(0);
+  const [paused, setPaused] = useState(false);     // auto-pause: true while stopped (opt-in)
+  const [liveSpeed, setLiveSpeed] = useState(null);// smoothed current speed (m/s) for the live readout
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
   const stRef = useRef({ meters: 0, last: null, points: [] });
@@ -1233,6 +1279,9 @@ function RecordRun({ onClose, onSaved, onToast }) {
   const timerRef = useRef(null);
   const startRef = useRef(null);
   const wakeRef = useRef(null);
+  const lastMoveRef = useRef(0);                   // ms timestamp of the last detected movement
+  const pauseAcctRef = useRef({ start: 0, pausedMs: 0, anchor: null }); // auto-pause time accounting
+  const speedRef = useRef(null);                   // EMA of current speed (m/s) for the live readout
 
   const miles = meters / 1609.344;
 
@@ -1263,10 +1312,28 @@ function RecordRun({ onClose, onSaved, onToast }) {
   const start = () => {
     stRef.current = { meters: 0, last: null, points: [] };
     startRef.current = new Date();
-    setMeters(0); setElapsed(0); setGpsAlert(null);
+    const t0 = startRef.current.getTime();
+    lastMoveRef.current = t0;                       // treat the start as "moving" so we don't pause at gun
+    pauseAcctRef.current = { start: t0, pausedMs: 0, anchor: null };
+    speedRef.current = null;
+    setMeters(0); setElapsed(0); setGpsAlert(null); setPaused(false); setLiveSpeed(null);
     watchRef.current = GeoTracker.startRecording(
       fix => {
+        const prevMeters = stRef.current.meters;
+        const prevLast = stRef.current.last;
         stRef.current = recorderStep(stRef.current, fix);
+        const moved = stRef.current.meters > prevMeters;
+        // Movement signal for auto-pause: an accepted distance step (position fallback) OR a
+        // Doppler speed at/above the walk threshold. Mirrors the recorder's own gates. (auto-pause)
+        if (moved || (typeof fix.speed === 'number' && fix.speed >= GPS_MIN_SPEED_MS)) {
+          lastMoveRef.current = Date.now();
+        }
+        // Live speed EMA: prefer Doppler speed; else derive from the accepted step's distance/time.
+        let inst = (typeof fix.speed === 'number' && fix.speed >= 0) ? fix.speed : null;
+        if (inst == null && moved && prevLast && fix.t > prevLast.t) {
+          inst = (stRef.current.meters - prevMeters) / ((fix.t - prevLast.t) / 1000);
+        }
+        speedRef.current = emaSpeed(speedRef.current, inst);
         setMeters(stRef.current.meters);
         // A good fix arrived → clear any standing GPS alert (recovery). Functional form
         // returns the same ref when there's nothing to clear so React skips the re-render.
@@ -1282,10 +1349,20 @@ function RecordRun({ onClose, onSaved, onToast }) {
     // Start the iOS Live Activity (lock-screen / Dynamic Island). No-op off native. (618g)
     LiveActivity.start(liveActivityPayload(actType, 0, 0));
     timerRef.current = setInterval(() => {
-      const secs = Math.round((Date.now() - startRef.current.getTime()) / 1000);
-      setElapsed(secs);
-      // Push live stats to the Live Activity once a second (distance + time + pace/mph).
-      LiveActivity.update(liveActivityPayload(actType, stRef.current.meters, secs));
+      // Auto-pause time accounting (no-op when the toggle is off → plain wall-clock elapsed).
+      const acct = autoPauseStep(pauseAcctRef.current, {
+        now: Date.now(), lastMove: lastMoveRef.current, enabled: !!autoPause,
+      });
+      pauseAcctRef.current = acct;
+      setElapsed(acct.elapsed);
+      setPaused(acct.paused);
+      // Live speed: show the smoothed current speed, but read 0 once movement has clearly stopped
+      // (no accepted fix for >3s) so it doesn't hang on a stale value at a standstill.
+      const moving = (Date.now() - lastMoveRef.current) < 3000;
+      setLiveSpeed(moving ? speedRef.current : 0);
+      // Push live stats to the Live Activity once a second. When paused, elapsed is frozen, so
+      // the lock-screen card naturally holds time + pace steady too. (distance + time + pace/mph)
+      LiveActivity.update(liveActivityPayload(actType, stRef.current.meters, acct.elapsed));
     }, 1000);
     setPhase('recording');
   };
@@ -1378,12 +1455,12 @@ function RecordRun({ onClose, onSaved, onToast }) {
             padding:'18px 16px calc(22px + env(safe-area-inset-bottom)) 16px'}}>
             <div style={{textAlign:'center',width:'100%',maxWidth:420,background:'rgba(15,20,32,0.62)',backdropFilter:'blur(10px)',
               WebkitBackdropFilter:'blur(10px)',border:'1px solid var(--border)',borderRadius:20,padding:'20px 20px 24px'}}>
-              <div style={{fontSize:'0.8rem',color:'var(--gray)',letterSpacing:2,textTransform:'uppercase',marginBottom:6}}>{actType === 'Run' ? '🏃 Running' : '🚶 Walking'}</div>
+              <div style={{fontSize:'0.8rem',color: paused ? '#D4AF37' : 'var(--gray)',letterSpacing:2,textTransform:'uppercase',marginBottom:6,fontWeight: paused ? 700 : 400}}>{paused ? '❚❚ Paused — auto' : (actType === 'Run' ? '🏃 Running' : '🚶 Walking')}</div>
               <div style={{...big,fontSize:'4.2rem'}}>{miles.toFixed(2)}</div>
               <div style={{fontSize:'0.8rem',color:'var(--gray)',marginBottom:18}}>MILES</div>
               <div className="flex" style={{justifyContent:'center',gap:40,marginBottom:22}}>
                 <div><div style={{...big,fontSize:'1.9rem'}}>{fmtClock(elapsed)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>TIME</div></div>
-                <div><div style={{...big,fontSize:'1.9rem'}}>{actType==='Walk' ? fmtSpeed(elapsed, miles) : fmtPace(elapsed, miles)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>{actType==='Walk' ? 'MPH' : '/MILE'}</div></div>
+                <div><div style={{...big,fontSize:'1.9rem'}}>{actType==='Walk' ? liveSpeedMph(liveSpeed) : livePaceFromMps(liveSpeed)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>{actType==='Walk' ? 'MPH' : '/MILE'}</div></div>
               </div>
               <button onClick={stop}
                 style={{...big,width:118,height:118,borderRadius:'50%',border:'3px solid #e74c3c',cursor:'pointer',fontSize:'1.3rem',background:'rgba(231,76,60,0.08)',color:'#e74c3c'}}>
@@ -1432,7 +1509,7 @@ function RecordRun({ onClose, onSaved, onToast }) {
 /* ══════════════════════════════════════
    ACTIVITY LOG
 ══════════════════════════════════════ */
-function ActivityLog({ onToast }) {
+function ActivityLog({ onToast, user }) {
   const [showModal, setShowModal] = useState(false);
   const [activities, setActivities] = useState([]);
   const [total, setTotal]           = useState(0);
@@ -1562,7 +1639,7 @@ function ActivityLog({ onToast }) {
       </div>
 
       {showRecord && (
-        <RecordRun onClose={()=>setShowRecord(false)} onSaved={loadActivities} onToast={onToast} />
+        <RecordRun onClose={()=>setShowRecord(false)} onSaved={loadActivities} onToast={onToast} autoPause={!!(user && user.auto_pause)} />
       )}
 
       {showModal && (
@@ -2774,9 +2851,37 @@ function Profile({ user, onLogout, onToast, onUserUpdate }) {
 /* ══════════════════════════════════════
    ACCOUNT (membership + location)
 ══════════════════════════════════════ */
-function Account({ user, onToast, onUserUpdate }) {
+function Account({ user, onToast, onUserUpdate, onLogout }) {
   const [loc, setLoc] = useState({ country: user.country || '', state: user.state || '', city: user.city || '' });
   const [savingLoc, setSavingLoc] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [delPw, setDelPw] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [savingPause, setSavingPause] = useState(false);
+
+  const toggleAutoPause = async () => {
+    setSavingPause(true);
+    const next = user.auto_pause ? 0 : 1;
+    try {
+      const r = await api.patch('/auth/me', { auto_pause: !!next });
+      onUserUpdate(r.user);
+      onToast(next ? 'Auto-pause is on.' : 'Auto-pause is off.');
+    } catch (e) { alert(e.message); }
+    finally { setSavingPause(false); }
+  };
+
+  const deleteAccount = async () => {
+    if (!delPw) { onToast('Enter your password to confirm.'); return; }
+    setDeleting(true);
+    try {
+      await api.req('DELETE', '/auth/me', { password: delPw });
+      onToast('Your account has been permanently deleted.');
+      onLogout(); // clears token + user → returns to the login screen
+    } catch (e) {
+      alert(e.message);
+      setDeleting(false);
+    }
+  };
 
   const refreshUser = async (msg) => {
     try { const r = await api.get('/auth/me'); onUserUpdate(r.user); } catch(e) {}
@@ -2836,6 +2941,63 @@ function Account({ user, onToast, onUserUpdate }) {
               {savingLoc ? <Spinner /> : 'Save Location'}
             </button>
           </div>
+        </div>
+
+        <div className="card" style={{marginTop:16}}>
+          <div className="card-title">Recording</div>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:14}}>
+            <div>
+              <div style={{fontWeight:600,fontSize:'0.9rem'}}>Auto-pause</div>
+              <div style={{fontSize:'0.78rem',color:'var(--gray)',marginTop:2,maxWidth:400}}>
+                Automatically pause your time and distance when you stop — a crosswalk, red light, or
+                water break — and resume when you start moving again. Off by default.
+              </div>
+            </div>
+            <button
+              role="switch" aria-checked={!!user.auto_pause} aria-label="Auto-pause"
+              onClick={toggleAutoPause} disabled={savingPause}
+              style={{flexShrink:0,width:52,height:30,borderRadius:15,border:'1px solid var(--border)',
+                cursor: savingPause ? 'default' : 'pointer',position:'relative',padding:0,
+                background: user.auto_pause ? '#D4AF37' : 'var(--card)',transition:'background .15s',opacity: savingPause ? 0.6 : 1}}>
+              <span style={{position:'absolute',top:3,left: user.auto_pause ? 25 : 3,width:22,height:22,
+                borderRadius:'50%',background:'#fff',transition:'left .15s'}} />
+            </button>
+          </div>
+        </div>
+
+        <div className="card" style={{marginTop:16,border:'1px solid rgba(239,68,68,0.35)'}}>
+          <div className="card-title" style={{color:'#EF4444'}}>Delete Account</div>
+          <div style={{fontSize:'0.82rem',color:'var(--gray)',marginBottom:14}}>
+            Permanently delete your account and all associated data — your runs, badges, challenge
+            progress, and profile. This cannot be undone, and any active membership is cancelled.
+          </div>
+          {!showDelete ? (
+            <button className="btn btn-ghost btn-sm" style={{color:'#EF4444',borderColor:'rgba(239,68,68,0.5)'}} onClick={()=>setShowDelete(true)}>
+              Delete my account
+            </button>
+          ) : (
+            <div style={{background:'rgba(239,68,68,0.06)',border:'1px solid rgba(239,68,68,0.25)',borderRadius:10,padding:16}}>
+              <div style={{fontSize:'0.82rem',color:'var(--white)',marginBottom:10,fontWeight:600}}>
+                Enter your password to confirm permanent deletion:
+              </div>
+              <input
+                type="password"
+                placeholder="Your password"
+                value={delPw}
+                autoComplete="current-password"
+                onChange={e=>setDelPw(e.target.value)}
+                style={{width:'100%',marginBottom:12}}
+              />
+              <div style={{display:'flex',gap:8}}>
+                <button className="btn btn-ghost btn-sm" disabled={deleting} onClick={()=>{ setShowDelete(false); setDelPw(''); }}>
+                  Cancel
+                </button>
+                <button className="btn btn-sm" style={{background:'#EF4444',color:'#fff',flex:1}} disabled={deleting || !delPw} onClick={deleteAccount}>
+                  {deleting ? <Spinner /> : 'Permanently delete account'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -2923,14 +3085,14 @@ function App() {
   const renderPage = () => {
     switch(page) {
       case 'dashboard':  return <Dashboard user={user} />;
-      case 'activity':   return <ActivityLog key={activityKey} onToast={showToast} />;
+      case 'activity':   return <ActivityLog key={activityKey} onToast={showToast} user={user} />;
       case 'leaderboard':return <Leaderboard />;
       case 'challenges': return <Challenges onToast={showToast} />;
       case 'groupruns':  return <GroupRuns onToast={showToast} />;
       case 'askcaptain': return <AskCaptain user={user} onToast={showToast} />;
       case 'captain':    return <CaptainPanel user={user} onToast={showToast} />;
       case 'profile':    return <Profile user={user} onLogout={()=>{ api.setToken(null); setUser(null); }} onToast={showToast} onUserUpdate={u=>setUser(u)} />;
-      case 'account':    return <Account user={user} onToast={showToast} onUserUpdate={u=>setUser(u)} />;
+      case 'account':    return <Account user={user} onToast={showToast} onUserUpdate={u=>setUser(u)} onLogout={()=>{ api.setToken(null); setUser(null); }} />;
       default:           return <Dashboard user={user} />;
     }
   };
@@ -3027,6 +3189,7 @@ function App() {
           onClose={()=>setShowRecord(false)}
           onSaved={()=>{ setActivityKey(k=>k+1); setPage('activity'); }}
           onToast={showToast}
+          autoPause={!!(user && user.auto_pause)}
         />
       )}
 

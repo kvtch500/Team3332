@@ -22,6 +22,7 @@ const schema = `
     pace_group  TEXT    NOT NULL DEFAULT 'C' CHECK(pace_group IN ('A', 'B', 'C', 'D')),
     is_captain  INTEGER NOT NULL DEFAULT 0,
     is_active   INTEGER NOT NULL DEFAULT 1,
+    auto_pause  INTEGER NOT NULL DEFAULT 0,
     bio                     TEXT,
     location                TEXT,
     country                 TEXT,

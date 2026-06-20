@@ -27,6 +27,8 @@ function getDb() {
     addColumn(`ALTER TABLE users ADD COLUMN state TEXT`);
     addColumn(`ALTER TABLE users ADD COLUMN city TEXT`);
     addColumn(`ALTER TABLE users ADD COLUMN avatar_url TEXT`);
+    // June 2026: opt-in auto-pause (pause timer + distance when the runner stops)
+    addColumn(`ALTER TABLE users ADD COLUMN auto_pause INTEGER NOT NULL DEFAULT 0`);
     addColumn(`ALTER TABLE users ADD COLUMN club_id INTEGER REFERENCES clubs(id) ON DELETE SET NULL`);
     // Index must be created AFTER club_id exists (migration above)
     db.exec(`CREATE INDEX IF NOT EXISTS idx_users_club ON users(club_id)`);
