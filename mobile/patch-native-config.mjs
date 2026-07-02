@@ -6,7 +6,7 @@
 // Without it, the LiveActivity card silently stops working after any sync.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
-const LOCAL_PLUGINS = ['LiveActivityPlugin'];
+const LOCAL_PLUGINS = ['LiveActivityPlugin', 'HeartRatePlugin', 'WatchSyncPlugin'];
 const target = 'ios/App/App/capacitor.config.json';
 
 if (!existsSync(target)) { console.log(`patch-native-config: ${target} not found, skipping`); process.exit(0); }
