@@ -3,6 +3,22 @@
 
 ---
 
+## 🔴 HIGH PRIORITY
+
+- [~] **Apple Watch support — should be YES.** Make TEAM 3332 fully Apple Watch compatible, the way
+      Strava connects with the Apple Watch: a native watchOS companion app that records runs straight
+      from the wrist (start/pause/stop, GPS + heart rate), shows live stats during the run
+      (distance, time, pace/mph), and syncs the activity back to the member's account so every
+      activity feature works from the watch — not just the phone. (Added June 20 2026.)
+      **Code complete June 25 2026 (session 17):** committed watchOS app (HealthKit HR +
+      CoreLocation GPS, start/pause/stop, live time/distance/pace/HR) in `mobile/ios-native-src/Watch/`,
+      a phone-side `WatchSyncPlugin` that forwards finished runs to `/api/activities` over
+      WatchConnectivity, and JS wiring in `app.jsx`. **Remaining: one-time Xcode wiring** (add the
+      Watch App target + HealthKit/Workout-processing capabilities) per `mobile/APPLE-WATCH-SETUP.md`,
+      then build & device-test on a real Apple Watch.
+
+---
+
 ## Cost Breakdown (Out of Pocket)
 
 ### One-Time Costs
