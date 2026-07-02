@@ -277,16 +277,19 @@ router.get('/:id', requireAuth, (req, res) => {
 
 // POST /api/activities — Log a new run
 router.post('/', requireAuth, (req, res) => {
-  const { name = 'My Run', type = 'Run', distance, pace, duration, calories, notes, route_data, logged_at } = req.body;
+  const { name = 'My Run', type = 'Run', distance, pace, duration, calories, notes, route_data, logged_at, avg_hr, max_hr } = req.body;
 
   if (!distance || isNaN(distance) || distance <= 0)
     return res.status(400).json({ error: 'Valid distance is required' });
 
+  // Heart rate (from a paired BLE sensor) is optional; clamp to a sane bpm range or store null.
+  const hr = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 20 && n <= 260 ? n : null; };
+
   const db   = getDb();
   const info = db.prepare(`
-    INSERT INTO activities (user_id, name, type, distance, pace, duration, calories, notes, route_data, logged_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
-  `).run(req.user.id, name, type, distance, pace ?? null, duration ?? null, calories || Math.round(distance * 82), notes ?? null, route_data ?? null, logged_at ?? null);
+    INSERT INTO activities (user_id, name, type, distance, pace, duration, calories, notes, route_data, avg_hr, max_hr, logged_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+  `).run(req.user.id, name, type, distance, pace ?? null, duration ?? null, calories || Math.round(distance * 82), notes ?? null, route_data ?? null, hr(avg_hr), hr(max_hr), logged_at ?? null);
 
   // Auto-update challenge progress
   updateChallengeProgress(db, req.user.id, { distance, pace, type });

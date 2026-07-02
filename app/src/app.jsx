@@ -77,7 +77,17 @@ function Avatar({ member, style }) {
 
 function formatDate(iso) {
   if (!iso) return '';
-  const d = new Date(iso);
+  // logged_at is stored as a naive UTC wall-clock string ("YYYY-MM-DD HH:MM:SS", no zone) — it
+  // comes from toISOString() with the 'T'/'Z' stripped. JS parses a bare date-time string as
+  // LOCAL, which shifted every displayed time by the viewer's UTC offset (e.g. a 5:49pm CDT run
+  // showed as 10:49pm). Tag it as UTC so toLocaleTimeString converts it back to local correctly.
+  // Strings that already carry a zone (full ISO with 'Z' or an offset — e.g. challenge dates)
+  // are left untouched.
+  let s = String(iso);
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(s)) {
+    s = s.replace(' ', 'T') + 'Z';
+  }
+  const d = new Date(s);
   const now = new Date();
   const diff = Math.floor((now - d) / 86400000);
   if (diff === 0) return `Today, ${d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
@@ -1104,7 +1114,28 @@ const GeoTracker = (() => {
     else navigator.geolocation.clearWatch(h.id);
   }
 
-  return { isNative, startPreview, stopPreview, startRecording, stopRecording };
+  // Watch position purely to center the idle "you are here" map. onCoords({lat,lon}).
+  // Same handle shape as startPreview, so stopPreview() cleans it up. (623 record-screen map)
+  function watchForMap(onCoords) {
+    if (isNative) {
+      const h = { native: true, id: null, dead: false };
+      fg().watchPosition({ enableHighAccuracy: true }, (pos, err) => {
+        if (err) return;
+        if (pos && pos.coords) onCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+      }).then(id => { h.id = id; if (h.dead) fg().clearWatch({ id }); })
+        .catch(() => {});
+      return h;
+    }
+    if (!navigator.geolocation) return null;
+    const id = navigator.geolocation.watchPosition(
+      pos => onCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 5000 }
+    );
+    return { native: false, id };
+  }
+
+  return { isNative, startPreview, stopPreview, startRecording, stopRecording, watchForMap };
 })();
 
 // ---------------------------------------------------------------------------
@@ -1132,6 +1163,179 @@ const LiveActivity = (() => {
   function update(payload) { const p = plugin(); if (p) safe(() => p.update(payload)); }
   function end(payload)    { const p = plugin(); if (p) safe(() => p.end(payload || {})); }
   return { start, update, end };
+})();
+
+// ---------------------------------------------------------------------------
+// HeartRate — pair a Bluetooth LE heart-rate sensor (chest strap / armband) and
+// stream live bpm during a run. Native iOS (Capacitor) drives the HeartRatePlugin
+// (CoreBluetooth, standard Heart Rate Service 0x180D / characteristic 0x2A37).
+// Everywhere else — web, Android, or before the native plugin is wired in Xcode —
+// every method is a safe no-op so a missing sensor can never interrupt a recording.
+// Same guarded registerPlugin pattern as GeoTracker/LiveActivity. (623)
+// ---------------------------------------------------------------------------
+const HeartRate = (() => {
+  const isNative = !!(typeof registerPlugin === 'function' && Capacitor && typeof Capacitor.isNativePlatform === 'function' && Capacitor.isNativePlatform());
+  let _p = null;
+  const plugin = () => {
+    if (!isNative) return null;
+    if (!_p) { try { _p = registerPlugin('HeartRate'); } catch (e) { _p = null; } }
+    return _p;
+  };
+  const safe = (fn) => { try { const r = fn(); if (r && typeof r.catch === 'function') r.catch(() => {}); } catch (e) { /* never fatal */ } };
+  const off = (sub) => { if (sub && typeof sub.remove === 'function') { try { sub.remove(); } catch (e) {} } };
+
+  // Discover nearby HR sensors. onDevice({id,name}) fires per device found.
+  // Returns { stop() }; null off native (so callers can show "needs the app" state).
+  async function scan(onDevice) {
+    const p = plugin(); if (!p) return null;
+    let sub = null;
+    try { sub = await p.addListener('deviceFound', d => { if (d && d.id) onDevice({ id: d.id, name: d.name || 'Heart-rate sensor' }); }); } catch (e) {}
+    safe(() => p.startScan());
+    return { stop: () => { safe(() => p.stopScan()); off(sub); } };
+  }
+
+  // Connect to a device id. onSample(bpm) for each reading; onState('connected'|'disconnected').
+  // Returns { disconnect() }; null off native.
+  async function connect(deviceId, onSample, onState) {
+    const p = plugin(); if (!p) return null;
+    let s1 = null, s2 = null;
+    try { s1 = await p.addListener('heartRate', e => { if (e && Number.isFinite(e.bpm)) onSample(e.bpm); }); } catch (e) {}
+    try { s2 = await p.addListener('connection', e => { if (e && e.state && onState) onState(e.state); }); } catch (e) {}
+    safe(() => p.connect({ deviceId }));
+    return { disconnect: () => { safe(() => p.disconnect()); off(s1); off(s2); } };
+  }
+  return { isNative, scan, connect };
+})();
+
+// ---------------------------------------------------------------------------
+// WatchSync — Apple Watch companion. The watchOS app records a run on the wrist
+// (GPS + heart rate) and hands the finished run to the iPhone over WatchConnectivity;
+// the native WatchSyncPlugin forwards it here as a "watchActivity" event and we POST it
+// to /api/activities using the member's existing session — so a watch run saves exactly
+// like a phone run. We also push login context back to the watch so it knows whose
+// account to sync to. Same guarded no-op pattern as LiveActivity/HeartRate. (session 17)
+// ---------------------------------------------------------------------------
+const WatchSync = (() => {
+  const isNative = !!(typeof registerPlugin === 'function' && Capacitor && typeof Capacitor.isNativePlatform === 'function' && Capacitor.isNativePlatform());
+  let _p = null;
+  const plugin = () => {
+    if (!isNative) return null;
+    if (!_p) { try { _p = registerPlugin('WatchSync'); } catch (e) { _p = null; } }
+    return _p;
+  };
+  const safe = (fn) => { try { const r = fn(); if (r && typeof r.catch === 'function') r.catch(() => {}); } catch (e) { /* never fatal */ } };
+
+  // Map a watch payload → the /activities body, mirroring the phone recorder's save (RecordRun).
+  function toBody(d) {
+    const miles = Number(d && d.distanceMiles) || 0;
+    if (miles <= 0) return null;                                  // nothing worth saving
+    const dist = Math.round(miles * 100) / 100;
+    const secs = Math.max(0, Math.round(Number(d.durationSeconds) || 0));
+    const started = Number(d.startedAtEpoch) ? new Date(Number(d.startedAtEpoch) * 1000) : new Date();
+    const pts = Array.isArray(d.points) ? d.points.filter(p => Array.isArray(p) && p.length >= 2) : [];
+    const hr = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 20 && n <= 260 ? n : null; };
+    const type = d.type === 'Walk' ? 'Walk' : 'Run';
+    return {
+      name: (d.name && String(d.name)) || `Apple Watch ${type}`,
+      type,
+      distance: dist,
+      pace: d.paceText ? String(d.paceText) : (fmtPace(secs, miles) === '—:—' ? null : fmtPace(secs, miles)),
+      duration: fmtClock(secs),
+      route_data: pts.length >= 2 ? JSON.stringify({ source: 'watch', points: pts }) : null,
+      avg_hr: hr(d.avgHr), max_hr: hr(d.maxHr),
+      logged_at: started.toISOString().slice(0, 19).replace('T', ' '),
+    };
+  }
+
+  // Delivery is PULL-based (session 19). The native plugin queues every finished run; we pull
+  // the queue with drainPending() on mount, on resume, and after login — so a watch run lands
+  // regardless of listener timing (the old push path silently dropped runs under Capacitor 6).
+  // A "watchActivityAvailable" poke just nudges us to drain promptly when foregrounded.
+  let _handlers = {};                 // last { onSaved, onError } registered via init()
+  const _seen = new Set();            // clientIds already POSTed this session (belt-and-suspenders dedup)
+  let _retry = [];                    // runs whose POST failed (e.g. offline) — retried next drain
+  let _draining = false;              // guard against overlapping drains
+
+  // POST one run. drainPending() has already cleared it from the native queue, so on failure we
+  // hold it in _retry (in-session) and re-attempt on the next drain — otherwise a transient
+  // network/auth blip would lose a run that's no longer in the native queue. Returns true if done.
+  async function postOne(d) {
+    const cid = d && d.clientId ? String(d.clientId) : '';
+    if (cid && _seen.has(cid)) return true;          // already handled (dup message+userInfo)
+    const body = toBody(d);
+    if (!body) { if (cid) _seen.add(cid); return true; } // nothing worth saving, but don't reprocess
+    try {
+      const r = await api.post('/activities', body);
+      if (cid) _seen.add(cid);
+      confirmToWatch(cid, true);                     // flips the watch summary to "Synced ✓"
+      if (_handlers.onSaved) _handlers.onSaved(r && r.activity ? r.activity : null, body);
+      return true;
+    } catch (e) {
+      _retry.push(d);                                // keep it for the next drain
+      confirmToWatch(cid, false);                    // watch shows "Sync problem — will retry"
+      if (_handlers.onError) _handlers.onError(e && e.message ? e.message : 'Could not save watch run');
+      return false;
+    }
+  }
+
+  // Report the real POST result back to the watch (best-effort, cosmetic only — the label on
+  // the summary screen). Rides applicationContext; a retry success overwrites an earlier failure.
+  function confirmToWatch(cid, ok) {
+    if (!cid) return;
+    const p = plugin(); if (!p || typeof p.confirmSync !== 'function') return;
+    try { p.confirmSync({ clientId: cid, ok: !!ok }); } catch (e) { /* never block on polish */ }
+  }
+
+  // Pull queued runs from native and POST each. Safe to call repeatedly / from anywhere.
+  async function drain() {
+    const p = plugin(); if (!p || _draining) return;
+    _draining = true;
+    try {
+      const res = await p.drainPending();
+      const pulled = (res && Array.isArray(res.activities)) ? res.activities : [];
+      const list = _retry.concat(pulled);            // retry earlier failures first
+      _retry = [];
+      for (const d of list) { await postOne(d); }     // sequential keeps toasts/refreshes orderly
+    } catch (e) { /* native unavailable or no queue — nothing to do */ }
+    finally { _draining = false; }
+  }
+
+  // Drain in a BURST over ~8s. A queued run (transferUserInfo) is delivered to native around
+  // the time the app activates — sometimes a beat BEFORE the JS listener is attached, sometimes
+  // a beat AFTER a single drain runs. Polling a few times closes that race without depending on
+  // the "watchActivityAvailable" poke firing at exactly the right moment.
+  let _burst = [];
+  function clearBurst() { for (const t of _burst) { try { clearTimeout(t); } catch (e) {} } _burst = []; }
+  function drainBurst() {
+    clearBurst();
+    for (const ms of [0, 500, 1500, 3500, 8000]) { _burst.push(setTimeout(() => { drain(); }, ms)); }
+  }
+
+  // Register handlers, attach the poke listener, and do an initial drain burst (catches
+  // cold-launch + queued runs whose native delivery races app startup). Returns a cleanup
+  // function; no-op off native.
+  function init({ onSaved, onError } = {}) {
+    _handlers = { onSaved, onError };
+    const p = plugin(); if (!p) return () => {};
+    let sub = null;
+    try {
+      p.addListener('watchActivityAvailable', () => { drain(); })
+        .then(h => { sub = h; }).catch(() => {});
+    } catch (e) { /* never block the app on watch wiring */ }
+    drainBurst();   // pull anything already queued (now or delivered moments later)
+    return () => {
+      clearBurst();
+      if (sub && typeof sub.remove === 'function') { try { sub.remove(); } catch (e) {} }
+    };
+  }
+
+  // Tell the watch who's signed in (or that nobody is) so it can gate/label recording.
+  function pushContext(user) {
+    const p = plugin(); if (!p) return;
+    safe(() => p.setContext({ loggedIn: !!user, memberName: (user && user.name) ? String(user.name) : '' }));
+  }
+
+  return { isNative, init, drain, drainBurst, pushContext };
 })();
 
 /* ── Map basemap config ────────────────────────────────────────────────────
@@ -1235,6 +1439,40 @@ function LiveRouteMap({ points }) {
   );
 }
 
+/* ── Idle "you are here" map (Leaflet) shown on the record screen before a run ──
+   Strava-style: the live map fills the screen behind the bottom control panel.
+   Centers on the member's current location once GPS reports it, and keeps a gold
+   "you are here" dot updated. Non-interactive (the panel below owns the gestures). */
+function IdleMap() {
+  const elRef = useRef(null), mapRef = useRef(null), meRef = useRef(null), centeredRef = useRef(false);
+  useEffect(() => {
+    if (!L || !elRef.current) return;
+    const map = L.map(elRef.current, {
+      zoomControl: false, attributionControl: false,
+      dragging: false, scrollWheelZoom: false, doubleClickZoom: false,
+      touchZoom: false, boxZoom: false, keyboard: false, tap: false,
+    }).setView([39.5, -98.35], 4); // continental US until first fix
+    baseTileLayer().addTo(map);
+    mapRef.current = map;
+    const t = setTimeout(() => map.invalidateSize(), 80);
+    const h = GeoTracker.watchForMap(({ lat, lon }) => {
+      if (!mapRef.current) return;
+      if (!meRef.current) {
+        meRef.current = L.circleMarker([lat, lon], {
+          radius: 8, color: '#fff', weight: 3, fillColor: '#D4AF37', fillOpacity: 1,
+        }).addTo(map);
+      } else meRef.current.setLatLng([lat, lon]);
+      if (!centeredRef.current) { map.setView([lat, lon], 16, { animate: false }); centeredRef.current = true; }
+    });
+    return () => { clearTimeout(t); GeoTracker.stopPreview(h); map.remove(); mapRef.current = null; meRef.current = null; };
+  }, []);
+  return (
+    <div className={`live-map ${USING_MAPBOX ? 'tiles-mapbox' : 'tiles-osm'}`} style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
+      <div ref={elRef} style={{ width: '100%', height: '100%' }} />
+    </div>
+  );
+}
+
 /* ── Static route preview (Leaflet) for the post-run review screen ──────────
    Fits the whole recorded route in view with start (green) + finish (red)
    markers. No following, no interaction. Renders nothing if Leaflet is
@@ -1263,9 +1501,11 @@ function RouteMiniMap({ points }) {
   return <div className={`route-mini ${USING_MAPBOX ? 'tiles-mapbox' : 'tiles-osm'}`}><div ref={elRef} style={{ width: '100%', height: '100%' }} /></div>;
 }
 
-function RecordRun({ onClose, onSaved, onToast, autoPause }) {
+function RecordRun({ onClose, onSaved, onToast, autoPause, onAutoPauseChange }) {
   const [phase, setPhase] = useState('idle');     // idle | recording | review
   const [actType, setActType] = useState('Run');
+  const [autoPauseOn, setAutoPauseOn] = useState(!!autoPause); // local mirror so it's toggleable on the record screen
+  const [savingPause, setSavingPause] = useState(false);
   const [gpsStatus, setGpsStatus] = useState('waiting'); // waiting | ready | denied | error
   const [gpsAlert, setGpsAlert] = useState(null);  // {kind,msg} shown while recording if GPS fails
   const [elapsed, setElapsed] = useState(0);
@@ -1274,6 +1514,18 @@ function RecordRun({ onClose, onSaved, onToast, autoPause }) {
   const [liveSpeed, setLiveSpeed] = useState(null);// smoothed current speed (m/s) for the live readout
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
+  const [optionsSheet, setOptionsSheet] = useState(false); // swipe-up options panel (auto-pause, sensor)
+  const swipeRef = useRef({ y0: 0 });               // track touch start for swipe-up detection
+  // ── Heart-rate sensor (BLE) state ──
+  const [hrSheet, setHrSheet] = useState(false);   // pairing sheet open
+  const [hrScanning, setHrScanning] = useState(false);
+  const [hrDevices, setHrDevices] = useState([]);  // [{id,name}] found while scanning
+  const [hrDevice, setHrDevice] = useState(null);  // connected device {id,name} or null
+  const [hrBpm, setHrBpm] = useState(null);         // latest live bpm
+  const hrSamplesRef = useRef([]);                  // bpm samples collected during the run
+  const hrConnRef = useRef(null);                   // active connection handle { disconnect() }
+  const hrScanRef = useRef(null);                   // active scan handle { stop() }
+  const recordingRef = useRef(false);               // true only while a run is recording (HR sample gate)
   const stRef = useRef({ meters: 0, last: null, points: [] });
   const watchRef = useRef(null);
   const timerRef = useRef(null);
@@ -1282,6 +1534,60 @@ function RecordRun({ onClose, onSaved, onToast, autoPause }) {
   const lastMoveRef = useRef(0);                   // ms timestamp of the last detected movement
   const pauseAcctRef = useRef({ start: 0, pausedMs: 0, anchor: null }); // auto-pause time accounting
   const speedRef = useRef(null);                   // EMA of current speed (m/s) for the live readout
+  const autoPauseOnRef = useRef(!!autoPause);      // live mirror the recorder loop reads
+
+  // keep local toggle in sync if the parent value changes
+  useEffect(() => { setAutoPauseOn(!!autoPause); autoPauseOnRef.current = !!autoPause; }, [autoPause]);
+
+  // Persist the auto-pause toggle (optimistic). Reused by the record-screen switch. (623)
+  const toggleAutoPauseLocal = async () => {
+    if (savingPause) return;
+    const next = !autoPauseOn;
+    setAutoPauseOn(next); autoPauseOnRef.current = next;   // optimistic
+    setSavingPause(true);
+    try {
+      const r = await api.patch('/auth/me', { auto_pause: next });
+      if (onAutoPauseChange && r && r.user) onAutoPauseChange(r.user);
+    } catch (e) {
+      setAutoPauseOn(!next); autoPauseOnRef.current = !next; // revert on failure
+      onToast(e.message || 'Could not save that setting');
+    } finally { setSavingPause(false); }
+  };
+
+  // ── Heart-rate sensor pairing ──────────────────────────────────────────────
+  // Open the sheet and start scanning for BLE HR devices. No-op (with a toast) off native.
+  const openHrSheet = async () => {
+    setHrSheet(true);
+    if (!HeartRate.isNative) return;            // web/preview: sheet shows the "needs the app" note
+    setHrDevices([]); setHrScanning(true);
+    hrScanRef.current = await HeartRate.scan(dev => {
+      setHrDevices(list => list.some(d => d.id === dev.id) ? list : [...list, dev]);
+    });
+    if (!hrScanRef.current) setHrScanning(false); // scan unavailable
+  };
+  const stopHrScan = () => {
+    if (hrScanRef.current) { hrScanRef.current.stop(); hrScanRef.current = null; }
+    setHrScanning(false);
+  };
+  const closeHrSheet = () => { stopHrScan(); setHrSheet(false); };
+
+  const connectHr = async (dev) => {
+    stopHrScan();
+    if (hrConnRef.current) { hrConnRef.current.disconnect(); hrConnRef.current = null; }
+    hrConnRef.current = await HeartRate.connect(
+      dev.id,
+      bpm => { setHrBpm(bpm); if (recordingRef.current) hrSamplesRef.current.push(bpm); },
+      state => {
+        if (state === 'disconnected') { setHrDevice(null); setHrBpm(null); }
+      },
+    );
+    if (hrConnRef.current) { setHrDevice(dev); onToast(`❤️ ${dev.name} connected`); setHrSheet(false); }
+    else onToast('Could not connect to that sensor');
+  };
+  const disconnectHr = () => {
+    if (hrConnRef.current) { hrConnRef.current.disconnect(); hrConnRef.current = null; }
+    setHrDevice(null); setHrBpm(null);
+  };
 
   const miles = meters / 1609.344;
 
@@ -1316,6 +1622,8 @@ function RecordRun({ onClose, onSaved, onToast, autoPause }) {
     lastMoveRef.current = t0;                       // treat the start as "moving" so we don't pause at gun
     pauseAcctRef.current = { start: t0, pausedMs: 0, anchor: null };
     speedRef.current = null;
+    hrSamplesRef.current = [];                      // fresh HR series for this run
+    recordingRef.current = true;                    // arm the HR sample gate
     setMeters(0); setElapsed(0); setGpsAlert(null); setPaused(false); setLiveSpeed(null);
     watchRef.current = GeoTracker.startRecording(
       fix => {
@@ -1351,7 +1659,7 @@ function RecordRun({ onClose, onSaved, onToast, autoPause }) {
     timerRef.current = setInterval(() => {
       // Auto-pause time accounting (no-op when the toggle is off → plain wall-clock elapsed).
       const acct = autoPauseStep(pauseAcctRef.current, {
-        now: Date.now(), lastMove: lastMoveRef.current, enabled: !!autoPause,
+        now: Date.now(), lastMove: lastMoveRef.current, enabled: autoPauseOnRef.current,
       });
       pauseAcctRef.current = acct;
       setElapsed(acct.elapsed);
@@ -1368,6 +1676,7 @@ function RecordRun({ onClose, onSaved, onToast, autoPause }) {
   };
 
   const stop = () => {
+    recordingRef.current = false;                   // stop collecting HR samples
     if (watchRef.current != null) { GeoTracker.stopRecording(watchRef.current); watchRef.current = null; }
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     LiveActivity.end(liveActivityPayload(actType, stRef.current.meters, elapsed)); // dismiss with final stats (618g)
@@ -1378,9 +1687,12 @@ function RecordRun({ onClose, onSaved, onToast, autoPause }) {
   };
 
   useEffect(() => () => { // cleanup if component unmounts mid-recording
+    recordingRef.current = false;
     if (watchRef.current != null) GeoTracker.stopRecording(watchRef.current);
     if (timerRef.current) clearInterval(timerRef.current);
     LiveActivity.end(); // clear any lingering Live Activity if the user leaves mid-run (618g)
+    if (hrScanRef.current) { hrScanRef.current.stop(); hrScanRef.current = null; }      // stop BLE scan
+    if (hrConnRef.current) { hrConnRef.current.disconnect(); hrConnRef.current = null; } // drop HR sensor
   }, []);
 
   const save = async () => {
@@ -1394,6 +1706,10 @@ function RecordRun({ onClose, onSaved, onToast, autoPause }) {
       // can compute true fastest-segment best efforts; legacy points stay [lat,lon]. (618e)
       const route = st.points.filter((_, i) => i % step === 0)
         .map(p => p.length >= 3 ? [r5(p[0]), r5(p[1]), p[2]] : [r5(p[0]), r5(p[1])]);
+      // Heart rate from a paired BLE sensor (avg + max bpm); null when no sensor was connected.
+      const hrs = hrSamplesRef.current;
+      const avg_hr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
+      const max_hr = hrs.length ? Math.max(...hrs) : null;
       await api.post('/activities', {
         name: name || `My ${actType}`,
         type: actType,
@@ -1401,6 +1717,7 @@ function RecordRun({ onClose, onSaved, onToast, autoPause }) {
         pace: fmtPace(elapsed, miles) === '—:—' ? null : fmtPace(elapsed, miles),
         duration: fmtClock(elapsed),
         route_data: route.length >= 2 ? JSON.stringify({ source: 'recorded', points: route }) : null,
+        avg_hr, max_hr,
         logged_at: startRef.current.toISOString().slice(0, 19).replace('T', ' '),
       });
       onSaved();
@@ -1420,23 +1737,49 @@ function RecordRun({ onClose, onSaved, onToast, autoPause }) {
   return (
     <div style={{position:'fixed',inset:0,zIndex:300,background:'var(--dark, #0b0f14)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:24}}>
       {phase === 'idle' && (
-        <div style={{textAlign:'center',width:'100%',maxWidth:380}}>
-          <div className="flex gap-8" style={{marginBottom:28}}>
-            {['Run','Walk'].map(t => (
-              <button key={t} className={`btn ${actType===t?'btn-primary':'btn-ghost'}`} style={{flex:1}} onClick={()=>setActType(t)}>
-                {t==='Run'?'🏃 Run':'🚶 Walk'}
-              </button>
-            ))}
+        <div style={{position:'absolute',inset:0}}>
+          <IdleMap />
+
+          {/* Close (✕) floating over the map */}
+          <button onClick={onClose} aria-label="Close"
+            style={{position:'absolute',top:'calc(12px + env(safe-area-inset-top))',left:14,zIndex:3,
+              width:40,height:40,borderRadius:20,border:'none',cursor:'pointer',
+              background:'rgba(11,15,20,0.72)',color:'#fff',fontSize:'1.05rem'}}>✕</button>
+
+          {/* Bottom control panel — Run/Walk + START; swipe up (or tap the arrows) for options */}
+          <div
+            onTouchStart={e=>{ swipeRef.current.y0 = e.touches[0].clientY; }}
+            onTouchEnd={e=>{ const dy = swipeRef.current.y0 - (e.changedTouches[0]?.clientY ?? swipeRef.current.y0); if (dy > 40) setOptionsSheet(true); }}
+            style={{position:'absolute',left:0,right:0,bottom:0,zIndex:2,
+              background:'var(--dark, #0b0f14)',borderTopLeftRadius:24,borderTopRightRadius:24,
+              boxShadow:'0 -8px 30px rgba(0,0,0,0.5)',
+              padding:'8px 22px calc(20px + env(safe-area-inset-bottom))',
+              minHeight:'33vh',display:'flex',flexDirection:'column',alignItems:'center'}}>
+
+            {/* swipe-up affordance: two small chevrons */}
+            <button onClick={()=>setOptionsSheet(true)} aria-label="More options"
+              style={{background:'none',border:'none',cursor:'pointer',padding:'4px 26px 10px',color:'var(--gray)'}}>
+              <svg width="24" height="15" viewBox="0 0 24 15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3,7 12,2 21,7" />
+                <polyline points="3,13 12,8 21,13" />
+              </svg>
+            </button>
+
+            <div className="flex gap-8" style={{width:'100%',maxWidth:380,marginBottom:18}}>
+              {['Run','Walk'].map(t => (
+                <button key={t} className={`btn ${actType===t?'btn-primary':'btn-ghost'}`} style={{flex:1}} onClick={()=>setActType(t)}>
+                  {t==='Run'?'🏃 Run':'🚶 Walk'}
+                </button>
+              ))}
+            </div>
+
+            <button onClick={start} disabled={gpsStatus==='denied'||gpsStatus==='error'}
+              style={{...big,width:128,height:128,borderRadius:'50%',border:'none',cursor:'pointer',fontSize:'1.45rem',
+                background:'var(--blue, #D4AF37)',color:'#0b0f14',opacity:(gpsStatus==='denied'||gpsStatus==='error')?0.4:1}}>
+              START
+            </button>
+            <div style={{fontSize:'0.78rem',color:'var(--gray)',marginTop:12}}>{gpsMsg}</div>
           </div>
-          <div style={{fontSize:'0.85rem',color:'var(--gray)',marginBottom:24}}>{gpsMsg}</div>
-          <button onClick={start} disabled={gpsStatus==='denied'||gpsStatus==='error'}
-            style={{...big,width:170,height:170,borderRadius:'50%',border:'none',cursor:'pointer',fontSize:'1.6rem',
-              background:'var(--blue, #D4AF37)',color:'#0b0f14',opacity:(gpsStatus==='denied'||gpsStatus==='error')?0.4:1}}>
-            START
-          </button>
-          {gpsStatus==='waiting' && <div style={{fontSize:'0.75rem',color:'var(--gray)',marginTop:14}}>You can start now — distance begins counting at first GPS lock</div>}
-          <div style={{marginTop:28}}><button className="btn btn-ghost btn-sm" onClick={onClose}>Cancel</button></div>
-          <div style={{fontSize:'0.72rem',color:'var(--gray)',marginTop:18}}>Keep your screen on while recording — tracking pauses if the phone locks.</div>
         </div>
       )}
 
@@ -1458,9 +1801,10 @@ function RecordRun({ onClose, onSaved, onToast, autoPause }) {
               <div style={{fontSize:'0.8rem',color: paused ? '#D4AF37' : 'var(--gray)',letterSpacing:2,textTransform:'uppercase',marginBottom:6,fontWeight: paused ? 700 : 400}}>{paused ? '❚❚ Paused — auto' : (actType === 'Run' ? '🏃 Running' : '🚶 Walking')}</div>
               <div style={{...big,fontSize:'4.2rem'}}>{miles.toFixed(2)}</div>
               <div style={{fontSize:'0.8rem',color:'var(--gray)',marginBottom:18}}>MILES</div>
-              <div className="flex" style={{justifyContent:'center',gap:40,marginBottom:22}}>
+              <div className="flex" style={{justifyContent:'center',gap: hrDevice ? 30 : 40,marginBottom:22}}>
                 <div><div style={{...big,fontSize:'1.9rem'}}>{fmtClock(elapsed)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>TIME</div></div>
                 <div><div style={{...big,fontSize:'1.9rem'}}>{actType==='Walk' ? liveSpeedMph(liveSpeed) : livePaceFromMps(liveSpeed)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>{actType==='Walk' ? 'MPH' : '/MILE'}</div></div>
+                {hrDevice && <div><div style={{...big,fontSize:'1.9rem',color:'#E74C3C'}}>{hrBpm ?? '—'}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>❤️ BPM</div></div>}
               </div>
               <button onClick={stop}
                 style={{...big,width:118,height:118,borderRadius:'50%',border:'3px solid #e74c3c',cursor:'pointer',fontSize:'1.3rem',background:'rgba(231,76,60,0.08)',color:'#e74c3c'}}>
@@ -1478,6 +1822,9 @@ function RecordRun({ onClose, onSaved, onToast, autoPause }) {
             <div style={{textAlign:'center'}}><div style={{...big,fontSize:'2.2rem'}}>{miles.toFixed(2)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>MILES</div></div>
             <div style={{textAlign:'center'}}><div style={{...big,fontSize:'2.2rem'}}>{fmtClock(elapsed)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>TIME</div></div>
             <div style={{textAlign:'center'}}><div style={{...big,fontSize:'2.2rem'}}>{actType==='Walk' ? fmtSpeed(elapsed, miles) : fmtPace(elapsed, miles)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>{actType==='Walk' ? 'MPH' : '/MILE'}</div></div>
+            {hrSamplesRef.current.length > 0 && (
+              <div style={{textAlign:'center'}}><div style={{...big,fontSize:'2.2rem',color:'#E74C3C'}}>{Math.round(hrSamplesRef.current.reduce((a,b)=>a+b,0)/hrSamplesRef.current.length)}</div><div style={{fontSize:'0.72rem',color:'var(--gray)'}}>❤️ AVG</div></div>
+            )}
           </div>
           {miles < 0.01 ? (
             <div style={{textAlign:'center'}}>
@@ -1500,6 +1847,103 @@ function RecordRun({ onClose, onSaved, onToast, autoPause }) {
               }, onToast)}>📤 Share</button>
             </div>
           )}
+        </div>
+      )}
+
+      {optionsSheet && (
+        <div onClick={e => { if (e.target === e.currentTarget) setOptionsSheet(false); }}
+          style={{position:'fixed',inset:0,zIndex:390,background:'rgba(0,0,0,0.5)',display:'flex',
+            alignItems:'flex-end',justifyContent:'center'}}>
+          <div
+            onTouchStart={e=>{ swipeRef.current.y0 = e.touches[0].clientY; }}
+            onTouchEnd={e=>{ const dy = (e.changedTouches[0]?.clientY ?? swipeRef.current.y0) - swipeRef.current.y0; if (dy > 40) setOptionsSheet(false); }}
+            style={{width:'100%',maxWidth:480,background:'var(--card, #11161f)',borderTopLeftRadius:20,
+              borderTopRightRadius:20,border:'1px solid var(--border)',padding:'10px 20px calc(24px + env(safe-area-inset-bottom))'}}>
+            <div style={{width:40,height:5,borderRadius:3,background:'var(--border)',margin:'0 auto 16px'}} />
+            <div style={{fontWeight:700,fontSize:'1.05rem',color:'#fff',marginBottom:14}}>Run options</div>
+
+            <button
+              role="switch" aria-checked={autoPauseOn} aria-label="Auto-pause"
+              onClick={toggleAutoPauseLocal} disabled={savingPause}
+              style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,width:'100%',
+                margin:'0 0 12px',padding:'12px 14px',borderRadius:14,
+                background:'rgba(255,255,255,0.04)',border:'1px solid var(--border)',
+                cursor: savingPause ? 'default' : 'pointer',opacity: savingPause ? 0.6 : 1}}>
+              <span style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:2}}>
+                <span style={{fontWeight:600,fontSize:'0.9rem',color:'#fff'}}>⏸ Auto-pause</span>
+                <span style={{fontSize:'0.72rem',color:'var(--gray)'}}>Pause when you stop, resume when you move</span>
+              </span>
+              <span style={{flexShrink:0,width:52,height:30,borderRadius:15,border:'1px solid var(--border)',
+                position:'relative',background: autoPauseOn ? '#D4AF37' : 'var(--card, #1a1f29)',transition:'background .15s'}}>
+                <span style={{position:'absolute',top:3,left: autoPauseOn ? 25 : 3,width:22,height:22,
+                  borderRadius:'50%',background:'#fff',transition:'left .15s'}} />
+              </span>
+            </button>
+
+            <div
+              onClick={hrDevice ? disconnectHr : openHrSheet}
+              style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,width:'100%',
+                margin:'0 0 4px',padding:'12px 14px',borderRadius:14,cursor:'pointer',
+                background: hrDevice ? 'rgba(231,76,60,0.10)' : 'rgba(255,255,255,0.04)',
+                border:`1px solid ${hrDevice ? 'rgba(231,76,60,0.45)' : 'var(--border)'}`}}>
+              <span style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:2}}>
+                <span style={{fontWeight:600,fontSize:'0.9rem',color:'#fff'}}>
+                  {hrDevice ? `❤️ ${hrDevice.name}` : '➕ Add a sensor'}
+                </span>
+                <span style={{fontSize:'0.72rem',color:'var(--gray)'}}>
+                  {hrDevice ? `${hrBpm ? hrBpm + ' bpm — ' : ''}tap to disconnect` : 'Pair a Bluetooth heart-rate monitor'}
+                </span>
+              </span>
+              {hrDevice
+                ? <span style={{flexShrink:0,fontSize:'1.4rem',fontWeight:700,color:'#E74C3C',fontFamily:'Barlow Condensed'}}>{hrBpm ?? '—'}</span>
+                : <span style={{flexShrink:0,color:'var(--gray)',fontSize:'1.1rem'}}>›</span>}
+            </div>
+
+            <button className="btn btn-ghost btn-sm" style={{width:'100%',marginTop:14}} onClick={()=>setOptionsSheet(false)}>Done</button>
+          </div>
+        </div>
+      )}
+
+      {hrSheet && (
+        <div onClick={e => { if (e.target === e.currentTarget) closeHrSheet(); }}
+          style={{position:'fixed',inset:0,zIndex:400,background:'rgba(0,0,0,0.6)',display:'flex',
+            alignItems:'flex-end',justifyContent:'center'}}>
+          <div style={{width:'100%',maxWidth:480,background:'var(--card, #11161f)',borderTopLeftRadius:20,
+            borderTopRightRadius:20,border:'1px solid var(--border)',padding:'20px 20px calc(24px + env(safe-area-inset-bottom))'}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+              <div style={{fontWeight:700,fontSize:'1.05rem',color:'#fff'}}>❤️ Add a sensor</div>
+              <button className="btn btn-ghost btn-sm" onClick={closeHrSheet}>Done</button>
+            </div>
+            <div style={{fontSize:'0.78rem',color:'var(--gray)',marginBottom:16}}>
+              Bluetooth heart-rate monitors (chest straps and armbands) appear here. Wake your strap and keep it close.
+            </div>
+            {!HeartRate.isNative ? (
+              <div style={{fontSize:'0.82rem',color:'var(--gray)',padding:'14px 0'}}>
+                Sensor pairing works in the TEAM 3332 app on your phone — it isn't available in the web preview.
+              </div>
+            ) : (
+              <div>
+                {hrDevices.length === 0 && (
+                  <div style={{fontSize:'0.82rem',color:'var(--gray)',padding:'18px 0',textAlign:'center'}}>
+                    {hrScanning ? 'Scanning for sensors…' : 'No sensors found yet.'}
+                  </div>
+                )}
+                {hrDevices.map(d => (
+                  <button key={d.id} onClick={() => connectHr(d)}
+                    style={{display:'flex',alignItems:'center',justifyContent:'space-between',width:'100%',
+                      padding:'14px 12px',background:'transparent',border:'none',borderBottom:'1px solid var(--border)',
+                      cursor:'pointer',color:'#fff',fontSize:'0.92rem'}}>
+                    <span>❤️ {d.name}</span>
+                    <span style={{color:'#D4AF37',fontSize:'0.82rem',fontWeight:600}}>Connect</span>
+                  </button>
+                ))}
+                <button className="btn btn-ghost btn-sm" style={{width:'100%',marginTop:14}}
+                  onClick={hrScanning ? stopHrScan : openHrSheet}>
+                  {hrScanning ? 'Stop scanning' : 'Scan again'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -1620,6 +2064,7 @@ function ActivityLog({ onToast, user }) {
                   <div><div style={{fontFamily:'Barlow Condensed',fontWeight:700,fontSize:'1.1rem'}}>{a.distance}</div><div style={{fontSize:'0.7rem',color:'var(--gray)'}}>miles</div></div>
                   <div><div style={{fontFamily:'Barlow Condensed',fontWeight:700,fontSize:'1.1rem'}}>{activityStat(a).val}</div><div style={{fontSize:'0.7rem',color:'var(--gray)'}}>{activityStat(a).unit}</div></div>
                   <div><div style={{fontFamily:'Barlow Condensed',fontWeight:700,fontSize:'1.1rem'}}>{a.duration||'—'}</div><div style={{fontSize:'0.7rem',color:'var(--gray)'}}>time</div></div>
+                  {a.avg_hr ? <div><div style={{fontFamily:'Barlow Condensed',fontWeight:700,fontSize:'1.1rem',color:'#E74C3C'}}>{a.avg_hr}</div><div style={{fontSize:'0.7rem',color:'var(--gray)'}}>❤️ bpm</div></div> : null}
                   <div><div style={{fontFamily:'Barlow Condensed',fontWeight:700,fontSize:'1.1rem'}}>{a.calories||'—'}</div><div style={{fontSize:'0.7rem',color:'var(--gray)'}}>cal</div></div>
                   <button className="btn btn-xs btn-ghost" title="Share" onClick={e=>{e.stopPropagation(); shareActivity({
                     name: a.name, type: a.type, distance: a.distance,
@@ -3066,6 +3511,37 @@ function App() {
     return () => { try { handle && handle.remove && handle.remove(); } catch (e) {} };
   }, []);
 
+  // Apple Watch: a run recorded on the wrist arrives here and is saved to the member's
+  // account. Refresh the Runs list and toast the result. No-op off native. (session 17)
+  useEffect(() => {
+    const cleanup = WatchSync.init({
+      onSaved: (a) => {
+        setToast(a && a.distance ? `⌚ Watch run saved — ${a.distance} mi!` : '⌚ Watch run saved!');
+        setActivityKey(k => k + 1);
+      },
+      onError: (m) => setToast(`Watch sync error: ${m}`),
+    });
+    // Also drain whenever the app comes back to the foreground — transferUserInfo is an
+    // opportunistic background transfer, so a run recorded while the phone was asleep is often
+    // sitting in the native queue by the time the user reopens the app.
+    let resumeSub = null;
+    try {
+      CapApp.addListener('appStateChange', (s) => { if (s && s.isActive) WatchSync.drainBurst(); })
+        .then(h => { resumeSub = h; }).catch(() => {});
+    } catch (e) { /* non-native or no App plugin — fine */ }
+    return () => {
+      try { cleanup && cleanup(); } catch (e) {}
+      try { resumeSub && resumeSub.remove && resumeSub.remove(); } catch (e) {}
+    };
+  }, []);
+
+  // Keep the watch told who's signed in (label/gate recording, and clear on logout). After a
+  // login, also drain — a run may have arrived (and been queued natively) while logged out.
+  useEffect(() => {
+    WatchSync.pushContext(user);
+    if (user) WatchSync.drainBurst();
+  }, [user]);
+
   const showToast = msg => setToast(msg);
 
   const navigate = (id) => {
@@ -3190,6 +3666,7 @@ function App() {
           onSaved={()=>{ setActivityKey(k=>k+1); setPage('activity'); }}
           onToast={showToast}
           autoPause={!!(user && user.auto_pause)}
+          onAutoPauseChange={u=>setUser(u)}
         />
       )}
 

@@ -49,6 +49,8 @@ const schema = `
     calories    INTEGER,
     notes       TEXT,
     route_data  TEXT,
+    avg_hr      INTEGER,
+    max_hr      INTEGER,
     strava_id   TEXT UNIQUE,
     logged_at   TEXT    NOT NULL DEFAULT (datetime('now')),
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))

@@ -30,6 +30,9 @@ function getDb() {
     // June 2026: opt-in auto-pause (pause timer + distance when the runner stops)
     addColumn(`ALTER TABLE users ADD COLUMN auto_pause INTEGER NOT NULL DEFAULT 0`);
     addColumn(`ALTER TABLE users ADD COLUMN club_id INTEGER REFERENCES clubs(id) ON DELETE SET NULL`);
+    // June 2026: heart rate from a paired BLE sensor (avg + max bpm per activity)
+    addColumn(`ALTER TABLE activities ADD COLUMN avg_hr INTEGER`);
+    addColumn(`ALTER TABLE activities ADD COLUMN max_hr INTEGER`);
     // Index must be created AFTER club_id exists (migration above)
     db.exec(`CREATE INDEX IF NOT EXISTS idx_users_club ON users(club_id)`);
     // June 2026: admin approval for group runs — backfill pre-existing runs as approved
