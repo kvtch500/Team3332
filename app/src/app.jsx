@@ -1041,9 +1041,11 @@ const GeoTracker = (() => {
   // (The 617d "window.Capacitor without registerPlugin" crash can no longer happen.)
   const canUsePlugins = (typeof registerPlugin === 'function');
   const isNative = !!(canUsePlugins && Capacitor && typeof Capacitor.isNativePlatform === 'function' && Capacitor.isNativePlatform());
-  let _bg = null, _fg = null;
+  let _bg = null, _fg = null, _ln = null;
   const bg = () => { if (!_bg) _bg = registerPlugin('BackgroundGeolocation'); return _bg; };
   const fg = () => { if (!_fg) _fg = registerPlugin('Geolocation'); return _fg; };
+  const ln = () => { if (!_ln) _ln = registerPlugin('LocalNotifications'); return _ln; };
+  const isAndroid = isNative && typeof Capacitor.getPlatform === 'function' && Capacitor.getPlatform() === 'android';
 
   // 'denied' if the user refused location, otherwise 'error'
   const classify = (e) => {
@@ -1086,7 +1088,7 @@ const GeoTracker = (() => {
   function startRecording(onFix, onError) {
     if (isNative) {
       const h = { native: true, id: null, dead: false };
-      bg().addWatcher({
+      const begin = () => bg().addWatcher({
         backgroundTitle: 'TEAM 3332 — run in progress',
         backgroundMessage: 'Recording your route. Tap to return to the app.',
         requestPermissions: true,
@@ -1098,6 +1100,11 @@ const GeoTracker = (() => {
         onFix({ lat: location.latitude, lon: location.longitude, accuracy: location.accuracy, speed: location.speed, t: location.time });
       }).then(id => { h.id = id; if (h.dead) bg().removeWatcher({ id }); })
         .catch(() => onError && onError('error'));
+      // Android 13+ requires POST_NOTIFICATIONS for the persistent tracking notification —
+      // without it the plugin gets NO background updates. Ask before the first watch; a
+      // denial is non-fatal here (foreground tracking still works), so errors are swallowed.
+      if (isAndroid) { ln().requestPermissions().catch(() => {}).then(begin, begin); }
+      else begin();
       return h;
     }
     const id = navigator.geolocation.watchPosition(
