@@ -159,6 +159,11 @@ cd mobile && for f in ios-native-src/Watch/*.swift ios-native-src/App/WatchSync*
 - **Watch run never appears on the phone** → plugin not registered: check `packageClassList`
   (Step 5). Same gotcha as the Live Activity build — everything compiles, but the bridge is invisible
   until it's in the list.
+  ⚠️ **This shipped broken in build 13 (Jul 2 2026):** `npm run sync` chains
+  `npx cap sync && node patch-native-config.mjs` — when cap sync fails partway (CocoaPods),
+  it has ALREADY regenerated capacitor.config.json (plugins dropped) but the patch never runs.
+  **Before every Archive**, run `node patch-native-config.mjs` from `mobile/` and confirm it
+  prints ✓ — it's idempotent, takes a second, and guarantees the list is intact.
 - **Start screen says "sign in on your iPhone"** even though you're signed in → the watch hasn't
   received context yet. Make sure the phone app has been opened at least once since signing in;
   context is pushed via `updateApplicationContext` (latest-wins, survives relaunch).
